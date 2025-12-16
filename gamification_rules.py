@@ -37,6 +37,11 @@ ACTIONS = {
     "PREVENTIVE_ACTION": {
         "points": 25,
         "description": "User completed a maintenance task"
+    },
+    # הוספנו את זה כדי שהלוגיקה תהיה ברורה, למרות שזה 0
+    "USE_SEARCH": {
+        "points": 0,
+        "description": "Using the RAG Knowledge Base"
     }
 }
 
@@ -76,6 +81,18 @@ WEEKLY_CHALLENGES = [
 # 3. HELPER FUNCTIONS
 # ==========================================
 
+# Global variable to store the forced challenge ID (None = Auto/Calendar Mode)
+_FORCED_CHALLENGE_ID = None
+
+def set_challenge_mode(mode_id):
+    """
+    Sets the challenge mode.
+    None = Use Real Calendar.
+    1, 2, 3 = Force specific challenge ID.
+    """
+    global _FORCED_CHALLENGE_ID
+    _FORCED_CHALLENGE_ID = mode_id
+
 def get_points_for_action(action_key):
     """
     Returns the points for a specific action.
@@ -85,9 +102,14 @@ def get_points_for_action(action_key):
     return 0
 
 def get_current_weekly_challenge():
-    """
-    Returns the active challenge based on the current week number.
-    """
+    # 1. Check if a specific challenge is forced (Manual Mode)
+    if _FORCED_CHALLENGE_ID is not None:
+        # Find the challenge with the specific ID
+        for challenge in WEEKLY_CHALLENGES:
+            if challenge['id'] == _FORCED_CHALLENGE_ID:
+                return challenge
+    
+    # 2. If no force (Auto Mode), use the Real Calendar logic
     # Calculate week number (1-52)
     current_week = datetime.date.today().isocalendar()[1]
     

@@ -1,0 +1,4 @@
+firebase-admin
+nltk
+google-cloud-firestore
+google-auth

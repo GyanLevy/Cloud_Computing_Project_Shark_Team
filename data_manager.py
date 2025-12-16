@@ -1,87 +1,60 @@
-#config cell 
-!pip install -q nltk
-import json
-SERVICE_ACCOUNT_JSON = "/content/introtocloudcomputing-fcb85-firebase-adminsdk-fbsvc-9b3fe969d0.json"
-import os
-os.environ["SERVICE_ACCOUNT_JSON"] = SERVICE_ACCOUNT_JSON
-
 from __future__ import annotations
-from typing import Optional, List, Dict, Any
+import nltk
+import json
+import time
 import os
+import glob
+from config import get_db as _get_central_db
+from typing import Optional, List, Dict, Any
 import datetime as _dt
 import firebase_admin
 from firebase_admin import credentials, firestore
+import re
+from nltk.stem import PorterStemmer
 
-_APP_INITIALIZED: bool = False # a flag to tell the system if the firebase has been initialized or not 
-_DB = None #to hold the firestore client object after initialization -> to ensure consistent DB context
+# --- בדיקה שהספרייה מותקנת ---
+try:
+    from docx import Document
+except ImportError:
+    print("Warning: python-docx not installed. Run 'pip install python-docx'")
 
-SENSORS_COL  = "sensors"    #iot readings: the name of the firestore collection where Iot readings are stored
-ARTICLES_COL = "articles"   #RAG articles: the firestore collection for the RAG articles 
+# ==========================================
+# הגדרות ראשוניות (SETUP)
+# ==========================================
 
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    print("Downloading NLTK stopwords...")
+    nltk.download('stopwords')
+    nltk.download('punkt')
 
-#init the firebase
-def init_firebase(path_to_json=None, project_id=None):
-    global _APP_INITIALIZED, _DB
-    try:
-        if firebase_admin._apps:
-            _DB = firestore.client()
-            _APP_INITIALIZED = True
-            return
-    except Exception:
-        pass
-    if path_to_json is None:
-        path_to_json = os.environ.get("SERVICE_ACCOUNT_JSON")
-    if not path_to_json:
-        raise ValueError("Missing service account JSON path. "
-                         "Set SERVICE_ACCOUNT_JSON or pass path_to_json.")
+SENSORS_COL  = "sensors"    
+ARTICLES_COL = "articles"   
+INDEX_COL = "index"
 
-    cred = credentials.Certificate(path_to_json)
-    if project_id:
-        firebase_admin.initialize_app(cred, {"projectId": project_id})
-    else:
-        firebase_admin.initialize_app(cred)
-
-    _DB = firestore.client()
-    _APP_INITIALIZED = True
-
-
-
-#lazy getter --> will init if needed!
 def get_db():
-    global _DB
-    if _DB is None:
-        init_firebase(os.environ.get("SERVICE_ACCOUNT_JSON"))
-    return _DB
+    return _get_central_db()
 
-
-
-
-#timestamp to store in the firestore
 def _server_ts():
     try:
         return firestore.SERVER_TIMESTAMP
     except Exception:
         return _dt.datetime.utcnow().isoformat()
 
-
-#normalization -> convert firestore doc to plain dict
 def _doc_to_dict(doc):
     d = doc.to_dict() if hasattr(doc, "to_dict") else dict(doc)
-    d["id"] = doc.id if hasattr(doc, "id") else d.get("id") #attach id
-
-    #normalize time fields
+    d["id"] = doc.id if hasattr(doc, "id") else d.get("id")
     for k in ("created_at", "updated_at", "timestamp"): 
         v = d.get(k)
         if hasattr(v, "isoformat"):
             d[k] = v.isoformat()
-
-    #returns a dict that represent firestore doc
     return d 
 
+# ==========================================
+# פונקציות חיישנים (IOT)
+# ==========================================
 
-#SENSORS (IOT) - CRUD menu 
-
-#create a new reading doc
 def add_sensor_reading(plant_id ,temp=None, humidity=None, soil=None, light=None, extra=None):
     db = get_db()
     payload = {
@@ -96,13 +69,8 @@ def add_sensor_reading(plant_id ,temp=None, humidity=None, soil=None, light=None
     if extra:                 payload.update(extra)
 
     ref = db.collection(SENSORS_COL).add(payload)[1]
-
-    #returns new doc id
     return ref.id 
 
-
-
-#READ readings for a plant: newest first
 def get_sensor_history(plant_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
     db = get_db()
     q = (db.collection(SENSORS_COL)
@@ -112,15 +80,10 @@ def get_sensor_history(plant_id: str, limit: Optional[int] = None) -> List[Dict[
         q = q.limit(int(limit))
     return [_doc_to_dict(doc) for doc in q.stream()]
 
-
-#READ the most recent reading for a plant --> for the dashboard cards
 def get_latest_reading(plant_id: str) -> Optional[Dict[str, Any]]:
     rows = get_sensor_history(plant_id, limit=1)
     return rows[0] if rows else None
-
-
   
-#READ recent readings across all plants - the newest ones first 
 def get_all_readings(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     db = get_db()
     q = db.collection(SENSORS_COL).order_by("timestamp", direction=firestore.Query.DESCENDING)
@@ -128,33 +91,43 @@ def get_all_readings(limit: Optional[int] = None) -> List[Dict[str, Any]]:
         q = q.limit(int(limit))
     return [_doc_to_dict(doc) for doc in q.stream()]
 
+# ==========================================
+# פונקציות מאמרים ו-RAG (תומך DOCX)
+# ==========================================
 
+def read_text_from_file(file_path):
+    """
+    פונקציה חכמה שקוראת טקסט מקובץ לפי הסוג שלו (docx או txt).
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    
+    if ext == ".docx":
+        try:
+            doc = Document(file_path)
+            full_text = []
+            for para in doc.paragraphs:
+                full_text.append(para.text)
+            return "\n".join(full_text)
+        except Exception as e:
+            print(f"Error reading DOCX {file_path}: {e}")
+            return ""
+            
+    else: # ברירת מחדל: קובץ טקסט רגיל
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error reading TXT {file_path}: {e}")
+            return ""
 
-#UPDATE specific fields on an existing reading (update by id)
-def update_reading(reading_id: str, **fields: Any) -> bool:
-    #reading_id : doc's id in the SENSOR_COL
-    #fields : "keyword" fields to update (temp =.. ,  humidity= .. blah blah blah)
-    db = get_db()
-    fields = {**fields, "updated_at": _server_ts()}
-    db.collection(SENSORS_COL).document(reading_id).update(fields)
-    return True
-
-
-#DELETE a reading doc by it's id
-def delete_reading(reading_id: str) -> bool:
-    db = get_db()
-    db.collection(SENSORS_COL).document(reading_id).delete()
-    return True
-
-
-
-
-#CRUD for articles
-
-#functoin to create a new article doc in the firestore
 def add_article(title, content, url=None, metadata=None):
     db = get_db()
-    #creating a dict that contains all the fields to save in firestore
+    # בדיקה למניעת כפילויות: אם הכותרת קיימת, לא מעלים שוב
+    existing = db.collection(ARTICLES_COL).where("title", "==", title).limit(1).stream()
+    if list(existing):
+        print(f"Skipping duplicate: {title}")
+        return None
+
     doc = {
         "title": title,
         "content": content,
@@ -164,201 +137,134 @@ def add_article(title, content, url=None, metadata=None):
         "updated_at": _server_ts(),
     }
     ref = db.collection(ARTICLES_COL).add(doc)[1]
-
-    #returns the id of the new article 
     return ref.id
 
-#function to get all the articles from the "articles" collection in the firestore
 def get_all_articles(limit=None):
     db = get_db()
-    collection_ref = db.collection("articles") # start a query on the "articles" collection
-    query = collection_ref.order_by(
-        "created_at",
-        direction=firestore.Query.DESCENDING
-    )
+    docs = db.collection(ARTICLES_COL).stream()
+    return [_doc_to_dict(doc) for doc in docs]
 
-    if limit is not None:
-        query = query.limit(int(limit))
-
-    docs = query.stream()# run query and get documents
-
-    # convert each Firestore document to a normal Python dict
-    articles = []
-    for doc in docs:
-        articles.append(_doc_to_dict(doc))
-
-    return articles #returns as a list
-
-
-#function that fitches one atricle from the firestore by its doc id
 def get_article_by_id(article_id):
     db = get_db()
-    col = db.collection("articles")
-    # Get the document with this id
-    doc_snapshot = col.document(article_id).get()
+    doc = db.collection(ARTICLES_COL).document(article_id).get()
+    return _doc_to_dict(doc) if doc.exists else None
 
-    # If the document exists, convert it to a dict
-    if doc_snapshot.exists:
-        return _doc_to_dict(doc_snapshot)
+# --- מנוע החיפוש והאינדקס ---
 
-    # If it doesn't exist, return None
-    else:
-        return None
-
-
-#function to update an existing article in firestore
-def update_article(article_id, **fields):
-    db = get_db()
-
-    # Add a timestamp for when the update happens
-    fields["updated_at"] = _server_ts()
-    collection_ref = db.collection("articles")
-
-    # Pick the specific document and update its fields
-    doc_ref = collection_ref.document(article_id)
-    doc_ref.update(fields)
-
-    # Return True if the update is done successfully 
-    return True
-
-#function to delete an atricle from the firestore
-#helper func
-def delete_article(article_id):
-    db = get_db()
-    collection_ref = db.collection("articles")
-    doc_ref = collection_ref.document(article_id) #get the doc by its id
-    doc_ref.delete()
-    #return true if the doc was successfully deleted 
-    return True
-
-
-#function that reads a .txt file from Colab and uploads it as an article to firestore
-def add_article_from_txt(file_path, title, url=None, metadata=None):
-    # Read file content
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-        text = f.read()
-
-    article_id = add_article(
-        title=title,
-        content=text, 
-        url=url,
-        metadata=None,
-    )
-
-    return article_id
-
-#building the index
-import re
-from nltk.stem import PorterStemmer  #for stemming
 stemmer = PorterStemmer()
-
-#the name of the firestore collection that will store the index
-INDEX_COL = "index"
-
-#words we want to igonre  in search
-STOPWORDS = {"a","an","the","and","or","in","on","at","of","for","to","is","are","as","by","with","from","this","that","it","be","was","were"}
+STOPWORDS = {
+    "a", "an", "the", "and", "or", "in", "on", "at", "of", "for", "to", 
+    "is", "are", "as", "by", "with", "from", "this", "that", "it", "be", 
+    "was", "were", "which", "how", "what", "where", "when", "who", "can", 
+    "will", "not", "but", "has", "have", "had", "do", "does", "did"
+}
 
 def _tokenize(text):
-    if text is None:
-        text = ""
-    # Find all groups of letters/numbers in the text
+    if text is None: text = ""
+    # אופטימיזציה 1: לוקחים רק את ה-4000 תווים הראשונים (כותרת + תקציר + מבוא)
+    # זה מונע עומס מטורף על האינדקס במאמרים ארוכים
+    text = text[:4000] 
+    
     words = re.findall(r"\w+", text)
-    # Convert them to lowercase
-    words = [w.lower() for w in words]
+    # סינון מילים קצרות מדי (פחות מ-3 אותיות)
+    words = [w.lower() for w in words if len(w) > 2]
     return words
 
-#function that removes the stopwords ans stems the rest -> the tesxt becomes clean and searchable
 def _normalize(tokens):
-    cleaned_tokens = []  # list to store final words
-
+    cleaned_tokens = []
     for word in tokens:
-        # skip stopwords (ignore them completely)
-        if word in STOPWORDS:
+        if word in STOPWORDS: continue
+        # בדיקה שהמילה היא לא סתם מספרים
+        if word.isdigit(): continue 
+        
+        try:
+            stemmed_word = stemmer.stem(word)
+            cleaned_tokens.append(stemmed_word)
+        except:
             continue
-        stemmed_word = stemmer.stem(word)
-        cleaned_tokens.append(stemmed_word)
-    #returns 'clean'list
     return cleaned_tokens
 
-
-
-
-#function that builds the index for the RAG search engine
 def build_index_from_articles():
-
+    print("Optimization: Starting index build in batches...")
     db = get_db()
-
-    #Clear old index
-    index_ref = db.collection("index")
-    for old_doc in index_ref.stream():
-        old_doc.reference.delete()
+    index_ref = db.collection(INDEX_COL)
+    
+    # 1. מחיקת אינדקס ישן (במנות קטנות כדי לא לחרוג)
+    try:
+        deleted = 0
+        for old_doc in index_ref.limit(50).stream(): 
+            old_doc.reference.delete()
+            deleted += 1
+        if deleted > 0: print(f"Cleaned {deleted} old index terms...")
+    except Exception as e:
+        print(f"Warning during cleanup: {e}")
 
     inverted_index = {}
-
-    #Loop through all article documents
     articles = get_all_articles()
+    
+    print(f"Indexing {len(articles)} articles...")
+    
     for article in articles:
         doc_id = article["id"]
+        # חיבור כותרת ותוכן
         text = (article.get("title","") + " " + article.get("content",""))
-
-        # tokenize and normalize text
-        words = _tokenize(text)
-        words = _normalize(words)
-
-        # count term frequency
+        words = _normalize(_tokenize(text))
+        
         term_freq = {}
         for word in words:
             term_freq[word] = term_freq.get(word, 0) + 1
 
-        # add to the index
         for term, count in term_freq.items():
-            if term not in inverted_index:
-                inverted_index[term] = {}
+            if term not in inverted_index: inverted_index[term] = {}
             inverted_index[term][doc_id] = count
 
-    #Write the final index to firestore
+    # 2. כתיבה לדאטה-בייס במנות (Batches)
+    # Firestore מאפשר מקסימום 500 פעולות ב-Batch. אנחנו נעשה 400 ליתר ביטחון.
     batch = db.batch()
-    for term, posting in inverted_index.items():
+    count = 0
+    total_terms = len(inverted_index)
+    print(f"Total unique terms to index: {total_terms}")
+
+    for i, (term, posting) in enumerate(inverted_index.items()):
         doc_ref = index_ref.document(term)
         batch.set(doc_ref, {"postings": posting})
+        count += 1
+        
+        # כשהגענו ל-400, שולחים ומנקים
+        if count >= 400:
+            print(f"Saving batch... ({i}/{total_terms})")
+            batch.commit()
+            batch = db.batch() # בטש חדש
+            count = 0
+            time.sleep(1) # נותנים ל-Firebase לנשום שנייה
 
-    batch.commit()
-
+    # שליחת מה שנשאר
+    if count > 0:
+        batch.commit()
+    
+    print("Index built successfully.")
     return True
 
-
-#function that searches through the indexed atricles -> returns the beast matching docs
 def rag_search(query, top_k=5):
     db = get_db()
     words = _tokenize(query)        
     terms = _normalize(words)           
     scores = {}
 
-    #Look up each search term in the index
     for term in terms:
         term_doc = db.collection("index").document(term).get()
-        if not term_doc.exists:
-            continue
+        if not term_doc.exists: continue
         postings = term_doc.to_dict().get("postings", {})
 
         for doc_id, count in postings.items():
-            if doc_id not in scores:
-                scores[doc_id] = 0
+            if doc_id not in scores: scores[doc_id] = 0
             scores[doc_id] += count
 
-    #Rank documents by score -> highest first
-    ranked_docs = sorted(
-        scores.items(),
-        key=lambda item: item[1],
-        reverse=True
-    )[:top_k]
-
-    #Build the final list of results
+    ranked_docs = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:top_k]
     results = []
 
     for doc_id, score in ranked_docs:
         article = get_article_by_id(doc_id)
-
         if article:
             snippet = article["content"][:200] + "..."
             results.append({
@@ -368,65 +274,51 @@ def rag_search(query, top_k=5):
                 "snippet": snippet,
                 "url": article.get("url")
             })
-
     return results
 
+# ==========================================
+# פונקציית הטעינה האוטומטית
+# ==========================================
 
+def seed_database_with_articles():
+    """
+    סורקת את התיקייה 'articles_data',
+    קוראת קבצי docx ו-txt, ומעלה אותם ל-Firestore.
+    """
+    print("--- Seeding Database with REAL Data ---")
+    
+    # שם התיקייה שבה שמת את הקבצים
+    folder_path = "articles_data" 
+    
+    if not os.path.exists(folder_path):
+        print(f"Warning: Folder '{folder_path}' not found. Creating it now...")
+        os.makedirs(folder_path)
+        print(f"Please put your .docx files in '{folder_path}' and restart.")
+        return
 
-#adding articles from the 7th tutorial
-#article 1
-article_id = add_article_from_txt(
-    "/content/1-s2.0-S2772899424000417-main.txt",
-    title="A real time monitoring system for accurate plant leaves disease detection using deep learning",
-    url="https://doi.org/10.1016/j.cropd.2024.100092"
-)
-print("Added article id:", article_id)
+    # מציאת כל הקבצים מסוג docx ו-txt
+    files = glob.glob(os.path.join(folder_path, "*.docx")) + glob.glob(os.path.join(folder_path, "*.txt"))
+    
+    if not files:
+        print(f"No files found in {folder_path}.")
+        return
 
+    print(f"Found {len(files)} files. Processing...")
 
-article_id = add_article_from_txt(
-    "/content/s41598-025-98454-6.txt",
-    title="AI-IoT based smart agriculture  pivot for plant diseases detection  and treatment",
-    url="https://doi.org/10.1038/s41598-025-98454-6"
-)
-print("Added article id:", article_id)
-
-
-article_id = add_article_from_txt(
-    "/content/s41598-024-52038-y.txt",
-    title="A novel smartphone application  for early detection of habanero  disease",
-    url="https://www.nature.com/articles/s41598-024-52038-y"
-)
-print("Added article id:", article_id)
-
-
-article_id = add_article_from_txt(
-    "/content/pdis-03-15-0340-fe.txt",
-    title="Plant Disease Detection by Imaging Sensors – Parallels and Specific Demands for Precision Agriculture and Plant Phenotyping",
-    url="https://doi.org/10.1094/PDIS-03-15-0340-FE"
-)
-print("Added article id:", article_id)
-
-
-article_id = add_article_from_txt(
-    "/content/1-s2.0-S2772899424000417-main.txt",
-    title="Using Deep Learning for Image-Based Plant Disease Detection",
-    url="https://www.frontiersin.org/articles/10.3389/fpls.2016.01419/full"
-)
-print("Added article id:", article_id)
-
-
-
-
-build_index_from_articles()
-
-rag_search("tomato leaf disease detection", top_k=3)
-
-rid = add_sensor_reading("plant_001", temp=24.7, humidity=61.2, soil=0.44)
-print("new reading:", rid)
-print("latest:", get_latest_reading("plant_001"))
-print("history(3):", get_sensor_history("plant_001", limit=3))
-
-
-
-
-
+    for file_path in files:
+        filename = os.path.basename(file_path)
+        # שימוש בשם הקובץ בתור כותרת (בלי הסיומת)
+        title = os.path.splitext(filename)[0].replace("_", " ").title()
+        
+        print(f"Reading: {filename}...")
+        content = read_text_from_file(file_path)
+        
+        if content:
+            # הוספה לדאטה-בייס (יש בדיקת כפילויות בפנים)
+            add_article(title=title, content=content)
+        else:
+            print(f"Skipped empty or unreadable file: {filename}")
+    
+    print("Building Search Index...")
+    build_index_from_articles()
+    print("Seeding Complete.")
