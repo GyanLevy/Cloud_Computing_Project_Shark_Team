@@ -23,14 +23,21 @@ def handle_gamified_action(username, action_key, plant_id=None):
         new_score = auth_service.update_user_score(username, points)
         print(f"\n[SUCCESS] Action recorded! You earned {points} points.")
         print(f"[SCORE] New Total Score: {new_score}")
+    # יצרנו רשימה של פעולות "פיזיות" שצריכות לרענן את החיישנים
+    physical_actions = ["WATER_PLANT", "FERTILIZE_PLANT"]
     
-    # 2. עדכון חיישנים (אם רלוונטי)
-    if action_key == "WATER_PLANT" and plant_id:
-        data_manager.add_sensor_reading(plant_id, humidity=90.0, soil=0.8, temp=25.5)
-        print("[IOT] Sensor updated.")
-
-    # 3. עדכון אתגר שבועי (עכשיו זה מחוץ ל-if points > 0)
-    # זה קריטי! אחרת האתגר של החיפוש לא יעבוד כי הניקוד הוא 0
+    # הבדיקה החדשה: האם הפעולה הנוכחית נמצאת בתוך הרשימה?
+    if action_key in physical_actions and plant_id:
+        print(f"\n[SYSTEM] Action '{action_key}' detected. Triggering IoT Device...")
+        
+        success = data_manager.sync_iot_data(plant_id)
+        
+        if success:
+            print("[IOT] Plant environment updated with REAL data.")
+        else:
+            print("[IOT] Failed to fetch real data, check internet connection.")
+    
+    # 3. עדכון אתגר שבועי
     status = auth_service.update_weekly_challenge_progress(username, action_key)
     if status and status.get('relevant'):
         print(f"[CHALLENGE] Progress: {status['progress']}/{status['target']}")
@@ -66,21 +73,24 @@ def show_dashboard(user_data):
         
         print("\nOPTIONS:")
         print("1. Water Plant")
-        print("2. Upload Plant Photo")
-        print("3. Ask AI Expert (RAG)")
-        print("4. Leaderboard")
-        print("5. Logout")
+        print("2. Fertilize Plant")       
+        print("3. Upload Plant Photo")
+        print("4. Ask AI Expert (RAG)")
+        print("5. Leaderboard")
+        print("6. Sync IoT Data (Manual)") 
+        print("7. Logout")
         
         choice = input("\nSelect: ")
         
         if choice == "1":
             handle_gamified_action(username, "WATER_PLANT", "plant_001")
             # No need to re-login here, the loop will refresh data at the top
-            
-        elif choice == "2":
+        elif choice == "2": # <-- חדש!
+            handle_gamified_action(username, "FERTILIZE_PLANT", "plant_001")    
+        elif choice == "3":
             handle_gamified_action(username, "UPLOAD_PHOTO")
             
-        elif choice == "3":
+        elif choice == "4":
             q = input("Question: ")
             res = data_manager.rag_search(q, top_k=2)
             print("\n--- AI SEARCH RESULTS ---")
@@ -90,13 +100,15 @@ def show_dashboard(user_data):
                 handle_gamified_action(username, "USE_SEARCH")
             input("Press Enter to continue...") # Pause to let user read
             
-        elif choice == "4":
+        elif choice == "5":
             print("\n--- LEADERBOARD ---")
             for i, p in enumerate(auth_service.get_leaderboard()):
                 print(f"{i+1}. {p['username']} - {p['score']}")
             input("Press Enter to continue...")
-            
-        elif choice == "5": 
+        elif choice == "6":
+            data_manager.sync_iot_data("plant_001")
+            input("Press Enter to continue...")    
+        elif choice == "7": 
             break
         else: 
             print("Invalid selection.")

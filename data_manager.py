@@ -2,6 +2,7 @@ from __future__ import annotations
 import nltk
 import json
 import time
+import requests
 import os
 import glob
 from config import get_db as _get_central_db
@@ -90,6 +91,63 @@ def get_all_readings(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     if limit:
         q = q.limit(int(limit))
     return [_doc_to_dict(doc) for doc in q.stream()]
+
+# ==========================================
+# EXTERNAL IOT SERVER INTEGRATION
+# ==========================================
+
+IOT_SERVER_URL = "https://server-cloud-v645.onrender.com/history"
+
+def sync_iot_data(plant_id):
+    """
+    Fetches real data from the lecturer's server (Render)
+    and saves it to our Firebase Firestore.
+    """
+    print("--- Connecting to IoT Server... (This might take time if server is sleeping) ---")
+    
+    # We need to fetch 3 different feeds
+    feeds = ["temperature", "humidity", "soil"]
+    sensor_data = {}
+
+    try:
+        for feed in feeds:
+            # Send GET request
+            response = requests.get(IOT_SERVER_URL, params={"feed": feed, "limit": 1})
+            
+            if response.status_code == 200:
+                data = response.json()
+                if "data" in data and len(data["data"]) > 0:
+                    # Get the most recent value
+                    latest_entry = data["data"][0]
+                    value = float(latest_entry["value"])
+                    sensor_data[feed] = value
+                    print(f"[IOT] Fetched {feed}: {value}")
+                else:
+                    print(f"[IOT] No data for {feed}")
+            else:
+                print(f"[IOT] Error fetching {feed}: {response.status_code}")
+
+        # If we got data, save it to our Firestore
+        if sensor_data:
+            # Normalize keys to match our database schema (temp, humidity, soil)
+            # The server returns "temperature", we use "temp"
+            final_temp = sensor_data.get("temperature")
+            final_hum = sensor_data.get("humidity")
+            final_soil = sensor_data.get("soil")
+
+            # Save to Firestore using existing function
+            new_id = add_sensor_reading(
+                plant_id, 
+                temp=final_temp, 
+                humidity=final_hum, 
+                soil=final_soil
+            )
+            print(f"[IOT] Data synced to Firestore successfully. ID: {new_id}")
+            return True
+            
+    except Exception as e:
+        print(f"[IOT] Connection failed: {e}")
+        return False
 
 # ==========================================
 # פונקציות מאמרים ו-RAG (תומך DOCX)
