@@ -12,11 +12,11 @@ def upload_screen(user_state: gr.State):
     gr.Markdown("## 📷 Upload Plant Image")
 
     with gr.Row():
-        # LEFT: upload only
+
         with gr.Column(scale=6):
             image_in = gr.Image(label="Upload a plant photo", type="pil")
 
-        # RIGHT: form fields (no preview)
+
         with gr.Column(scale=6):
             plant_name = gr.Textbox(label="Plant name", placeholder="e.g., My Basil")
             species = gr.Textbox(label="Species (optional)", placeholder="e.g., Basil / Monstera / Cactus")

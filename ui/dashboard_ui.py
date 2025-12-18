@@ -1,3 +1,4 @@
+# ui/dashboard_ui.py
 import html
 import datetime as dt
 import gradio as gr
@@ -6,6 +7,10 @@ import matplotlib.pyplot as plt
 from plants_manager import list_plants
 from data_manager import get_latest_reading, get_sensor_history, sync_iot_data
 
+
+# =========================
+# Helpers
+# =========================
 
 def _get_username(user_state):
     return user_state.strip() if isinstance(user_state, str) else ""
@@ -25,7 +30,6 @@ def _parse_ts(x):
     if isinstance(x, dt.datetime):
         return x
     s = str(x).strip()
-    
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
         try:
             return dt.datetime.strptime(s[:19], fmt)
@@ -33,6 +37,10 @@ def _parse_ts(x):
             pass
     return None
 
+
+# =========================
+# Health logic
+# =========================
 
 def _health_eval(latest: dict):
     if not latest:
@@ -97,379 +105,253 @@ def _health_eval(latest: dict):
 
 
 def _health_score_only(reading: dict) -> int:
-    """Same logic as _health_eval, but returns ONLY a score (for trend chart)."""
     if not reading:
         return 0
 
-    temp = reading.get("temp")
-    hum = reading.get("humidity")
-    soil = reading.get("soil")
-
     score = 100
-
-    # Soil
-    if soil is not None:
-        try:
-            soil_v = float(soil)
-            if soil_v < 30:
+    try:
+        if reading.get("soil") is not None:
+            s = float(reading["soil"])
+            if s < 30:
                 score -= 25
-            elif soil_v > 70:
+            elif s > 70:
                 score -= 20
-        except Exception:
-            pass
 
-    # Temp
-    if temp is not None:
-        try:
-            t = float(temp)
+        if reading.get("temp") is not None:
+            t = float(reading["temp"])
             if t < 15 or t > 30:
                 score -= 15
-        except Exception:
-            pass
 
-    # Humidity
-    if hum is not None:
-        try:
-            h = float(hum)
+        if reading.get("humidity") is not None:
+            h = float(reading["humidity"])
             if h < 35 or h > 75:
                 score -= 10
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     return max(0, min(100, int(round(score))))
 
 
+# =========================
+# Plot styling (Dark mode)
+# =========================
+
 def _style_axes(ax):
-    ax.set_facecolor("white")
+    ax.set_facecolor("#0b1220")
     for side in ["top", "right"]:
         ax.spines[side].set_visible(False)
     for side in ["left", "bottom"]:
-        ax.spines[side].set_color("#e5e7eb")
-        ax.spines[side].set_linewidth(1.0)
+        ax.spines[side].set_color("#334155")
 
-    ax.tick_params(colors="#0f172a")
-    ax.yaxis.label.set_color("#0f172a")
-    ax.xaxis.label.set_color("#0f172a")
-    ax.title.set_color("#0f172a")
-    ax.grid(True, alpha=0.18)
+    ax.tick_params(colors="#e2e8f0")
+    ax.yaxis.label.set_color("#e2e8f0")
+    ax.xaxis.label.set_color("#e2e8f0")
+    ax.title.set_color("#e2e8f0")
+    ax.grid(True, alpha=0.25)
 
 
 def _line_plot(points, title, y_label):
-    fig = plt.figure(figsize=(7.0, 3.2))
-    fig.patch.set_facecolor("white")
+    fig = plt.figure(figsize=(7, 3.2))
+    fig.patch.set_facecolor("#0b1220")
     ax = fig.add_subplot(111)
 
     ax.set_title(title, fontweight="bold")
     ax.set_xlabel("Time")
     ax.set_ylabel(y_label)
 
-    if not points:
-        _style_axes(ax)
-        ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                transform=ax.transAxes, color="#0f172a")
-        fig.tight_layout()
-        return fig
+    if points:
+        xs, ys = zip(*points)
+        ax.plot(xs, ys, linewidth=2.4)
 
-    xs = [p[0] for p in points]
-    ys = [p[1] for p in points]
-
-    ax.plot(xs, ys, linewidth=2.4)
-    fig.autofmt_xdate()
     _style_axes(ax)
+    fig.autofmt_xdate()
     fig.tight_layout()
     return fig
 
 
 def _hist_plot(values, title, x_label):
-    fig = plt.figure(figsize=(7.0, 3.2))
-    fig.patch.set_facecolor("white")
+    fig = plt.figure(figsize=(7, 3.2))
+    fig.patch.set_facecolor("#0b1220")
     ax = fig.add_subplot(111)
 
     ax.set_title(title, fontweight="bold")
     ax.set_xlabel(x_label)
     ax.set_ylabel("Count")
 
-    if not values:
-        _style_axes(ax)
-        ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                transform=ax.transAxes, color="#0f172a")
-        fig.tight_layout()
-        return fig
+    if values:
+        ax.hist(values, bins=10, alpha=0.9)
 
-    ax.hist(values, bins=10, edgecolor="#ffffff", linewidth=1.0)
     _style_axes(ax)
     fig.tight_layout()
     return fig
 
 
 def _scatter_plot(xs, ys, title, x_label, y_label):
-    fig = plt.figure(figsize=(7.0, 3.2))
-    fig.patch.set_facecolor("white")
+    fig = plt.figure(figsize=(7, 3.2))
+    fig.patch.set_facecolor("#0b1220")
     ax = fig.add_subplot(111)
 
     ax.set_title(title, fontweight="bold")
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
 
-    if not xs or not ys:
-        _style_axes(ax)
-        ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                transform=ax.transAxes, color="#0f172a")
-        fig.tight_layout()
-        return fig
+    if xs and ys:
+        ax.scatter(xs, ys, s=45, alpha=0.85)
 
-    ax.scatter(xs, ys, s=45, alpha=0.85)
     _style_axes(ax)
     fig.tight_layout()
     return fig
 
-def _delta_plot(points_temp, points_hum, points_soil, title="Change between samples (Δ)"):
-    """
-    Builds a delta chart: difference between consecutive samples for each sensor.
-    X-axis = time of the current sample
-    """
-    fig = plt.figure(figsize=(7.0, 3.2))
-    fig.patch.set_facecolor("white")
+
+def _delta_plot(points_temp, points_hum, points_soil):
+    fig = plt.figure(figsize=(7, 3.2))
+    fig.patch.set_facecolor("#0b1220")
     ax = fig.add_subplot(111)
 
-    ax.set_title(title, fontweight="bold")
+    ax.set_title("Change between samples (Δ)", fontweight="bold")
     ax.set_xlabel("Time")
     ax.set_ylabel("Δ value")
 
-    def to_deltas(points):
-        
-        if len(points) < 2:
-            return []
-        out = []
-        for i in range(1, len(points)):
-            t_prev, v_prev = points[i - 1]
-            t_cur, v_cur = points[i]
-            try:
-                out.append((t_cur, float(v_cur) - float(v_prev)))
-            except Exception:
-                pass
-        return out
+    def deltas(points):
+        return [
+            (points[i][0], points[i][1] - points[i - 1][1])
+            for i in range(1, len(points))
+        ]
 
-    dT = to_deltas(points_temp)
-    dH = to_deltas(points_hum)
-    dS = to_deltas(points_soil)
+    if len(points_temp) > 1:
+        xs, ys = zip(*deltas(points_temp))
+        ax.plot(xs, ys, label="Δ Temp")
 
-    if not dT and not dH and not dS:
-        _style_axes(ax)
-        ax.text(0.5, 0.5, "Not enough data (need at least 2 samples)", ha="center", va="center",
-                transform=ax.transAxes, color="#0f172a")
-        fig.tight_layout()
-        return fig
+    if len(points_hum) > 1:
+        xs, ys = zip(*deltas(points_hum))
+        ax.plot(xs, ys, label="Δ Humidity")
 
-    # plot each delta series if exists
-    if dT:
-        ax.plot([t for t, _ in dT], [v for _, v in dT], linewidth=2.2, label="Δ Temp (°C)")
-    if dH:
-        ax.plot([t for t, _ in dH], [v for _, v in dH], linewidth=2.2, label="Δ Humidity (%)")
-    if dS:
-        ax.plot([t for t, _ in dS], [v for _, v in dS], linewidth=2.2, label="Δ Soil")
+    if len(points_soil) > 1:
+        xs, ys = zip(*deltas(points_soil))
+        ax.plot(xs, ys, label="Δ Soil")
 
-    fig.autofmt_xdate()
     _style_axes(ax)
-    ax.legend(loc="upper right", frameon=False)
+    ax.legend(frameon=False)
+    fig.autofmt_xdate()
     fig.tight_layout()
     return fig
 
 
-def _status_badge(status: str):
-    s = (status or "").lower()
-    if "healthy" in s:
-        return ("#ecfdf5", "#bbf7d0", "#065f46")
-    if "unhealthy" in s:
-        return ("#fef2f2", "#fecaca", "#991b1b")
-    return ("#fff7ed", "#fed7aa", "#9a3412")
-
+# =========================
+# UI
+# =========================
 
 def dashboard_screen(user_state: gr.State):
     gr.Markdown("## 🌿 Plant Dashboard")
-    gr.Markdown("A visual overview of your plant health using real IoT samples (temp / humidity / soil).")
+    gr.Markdown("Visual overview based on **real IoT data**.")
 
     info = gr.Markdown()
 
     with gr.Row():
-        plant_dd = gr.Dropdown(label="Choose a plant", choices=[], value=None, scale=6)
+        plant_dd = gr.Dropdown(label="Choose a plant")
         days_dd = gr.Dropdown(
-            label="Range",
             choices=[("Last 7 days", 7), ("Last 14 days", 14), ("Last 30 days", 30)],
             value=14,
-            scale=3,
+            label="Range",
         )
-        refresh_btn = gr.Button("Apply", scale=2)
+        refresh_btn = gr.Button("Apply")
 
     summary_html = gr.HTML()
 
-  
-    with gr.Row():
-        p_soil_hist = gr.Plot(elem_classes=["plotcard"])
-        p_temp = gr.Plot(elem_classes=["plotcard"])
+    # -------- PLOTS (hidden by default) --------
+    plots_wrap = gr.Column(visible=False)
 
-    with gr.Row():
-        p_hum = gr.Plot(elem_classes=["plotcard"])
-        p_soil = gr.Plot(elem_classes=["plotcard"])
+    with plots_wrap:
+        with gr.Row():
+            p_soil_hist = gr.Plot()
+            p_temp = gr.Plot()
 
-    
-    with gr.Row():
-        p_health_trend = gr.Plot(elem_classes=["plotcard"])
-        p_soil_hum_scatter = gr.Plot(elem_classes=["plotcard"])
+        with gr.Row():
+            p_hum = gr.Plot()
+            p_soil = gr.Plot()
 
-    def load(u, chosen_pid, days):
+        with gr.Row():
+            p_health = gr.Plot()
+            p_scatter = gr.Plot()
+
+    def load(u, pid, days):
         username = _get_username(u)
-
-        empty_fig = _line_plot([], "No data", "")
-        empty_hist = _hist_plot([], "No data", "")
-        empty_scatter = _scatter_plot([], [], "No data", "", "")
-        empty_health = _line_plot([], "No data", "")
 
         if not username:
             return (
                 "⚠️ Please login to view the dashboard.",
                 gr.update(choices=[], value=None),
-                "<div class='card'><b style='color:#0f172a;'>Login required.</b></div>",
-                empty_hist, empty_fig, empty_fig, empty_fig,
-                empty_health, empty_scatter
+                "<b>Login required</b>",
+                gr.update(visible=False),
+                None, None, None, None, None, None
             )
 
         plants = list_plants(username) or []
-        choices = []
-        for p in plants:
-            pid = p.get("plant_id") or p.get("id")
-            if pid:
-                choices.append((_plant_label(p), pid))
+        choices = [(_plant_label(p), p.get("plant_id") or p.get("id")) for p in plants if p.get("plant_id") or p.get("id")]
 
         if not choices:
             return (
-                "No plants found. Add a plant in Upload.",
+                "No plants found.",
                 gr.update(choices=[], value=None),
-                "<div class='card'><b style='color:#0f172a;'>No plants yet.</b></div>",
-                empty_hist, empty_fig, empty_fig, empty_fig,
-                empty_health, empty_scatter
+                "<b>No plants yet</b>",
+                gr.update(visible=False),
+                None, None, None, None, None, None
             )
 
-        pid = chosen_pid or choices[0][1]
-        days = int(days or 14)
-
-        # Pull 1 fresh sample from IoT server (temp/humidity/soil)
+        pid = pid or choices[0][1]
         sync_iot_data(pid)
 
-        since = dt.datetime.utcnow() - dt.timedelta(days=days)
+        since = dt.datetime.utcnow() - dt.timedelta(days=int(days))
         hist = get_sensor_history(pid, limit=500) or []
 
-        points_temp, points_hum, points_soil = [], [], []
-        points_health = []          
-        scatter_soil = []           
-        scatter_hum = []            
+        pts_t, pts_h, pts_s, pts_health = [], [], [], []
+        xs_s, ys_h = [], []
 
         for r in hist:
             ts = _parse_ts(r.get("timestamp"))
-            if not ts:
-                continue
-            try:
-                ts_naive = ts.replace(tzinfo=None)
-            except Exception:
-                ts_naive = ts
-            if ts_naive < since:
+            if not ts or ts < since:
                 continue
 
-            def add_point(arr, key):
-                v = r.get(key)
-                if v is None:
-                    return None
-                try:
-                    val = float(v)
-                    arr.append((ts_naive, val))
-                    return val
-                except Exception:
-                    return None
+            if r.get("temp") is not None:
+                pts_t.append((ts, float(r["temp"])))
+            if r.get("humidity") is not None:
+                pts_h.append((ts, float(r["humidity"])))
+            if r.get("soil") is not None:
+                pts_s.append((ts, float(r["soil"])))
 
-            t_val = add_point(points_temp, "temp")
-            h_val = add_point(points_hum, "humidity")
-            s_val = add_point(points_soil, "soil")
+            pts_health.append((ts, _health_score_only(r)))
 
-            
-            score_here = _health_score_only(r)
-            points_health.append((ts_naive, score_here))
+            if r.get("soil") is not None and r.get("humidity") is not None:
+                xs_s.append(float(r["soil"]))
+                ys_h.append(float(r["humidity"]))
 
-            
-            if s_val is not None and h_val is not None:
-                scatter_soil.append(s_val)
-                scatter_hum.append(h_val)
-
-        points_temp.sort(key=lambda x: x[0])
-        points_hum.sort(key=lambda x: x[0])
-        points_soil.sort(key=lambda x: x[0])
-        points_health.sort(key=lambda x: x[0])
-
-        latest = get_latest_reading(pid) or {}
+        latest = get_latest_reading(pid)
         score, status, insights = _health_eval(latest)
-        bg, border, text = _status_badge(status)
 
-        latest_txt = (
-            f"<div style='margin-top:10px; color:#334155;'>"
-            f"<b style='color:#0f172a;'>Latest reading:</b> "
-            f"{latest.get('temp','N/A')}°C • {latest.get('humidity','N/A')}% • Soil {latest.get('soil','N/A')}"
-            f"</div>"
-        )
-
-        insights_html = "".join([f"<li style='color:#0f172a;'>{html.escape(str(i))}</li>" for i in insights])
-
-        summary = f"""
-        <div class="card">
-          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            <div style="font-weight:900; font-size:1.25rem; color:#0f172a;">{html.escape(status)}</div>
-            <div style="background:{bg}; border:1px solid {border}; color:{text};
-                        padding:6px 10px; border-radius:999px; font-weight:900;">
-              Score: {score}
-            </div>
-            <div style="color:#64748b; font-weight:700;">(last {days} days)</div>
-          </div>
-
-          {latest_txt}
-
-          <div style="margin-top:12px;">
-            <div style="font-weight:900; color:#0f172a; margin-bottom:6px;">Insights</div>
-            <ul style="margin:0; padding-left:18px;">
-              {insights_html}
-            </ul>
-          </div>
-        </div>
-        """
-
-   
-        soil_values = [v for _, v in points_soil]
-        fig_hist = _hist_plot(soil_values, "Soil moisture distribution", "Soil")
-        fig_t = _line_plot(points_temp, "Temperature (°C)", "°C")
-        fig_h = _line_plot(points_hum, "Humidity (%)", "%")
-        fig_s = _line_plot(points_soil, "Soil moisture trend", "Soil")
-
-        
-        fig_health = _delta_plot(points_temp, points_hum, points_soil, "Delta chart: change between samples (Δ)")
-
-        fig_scatter = _scatter_plot(
-            scatter_soil, scatter_hum,
-            "Correlation: Soil vs Humidity",
-            "Soil moisture",
-            "Humidity (%)"
-        )
+        summary = f"<b>Status:</b> {status}<br><b>Score:</b> {score}<ul>"
+        summary += "".join(f"<li>{html.escape(i)}</li>" for i in insights)
+        summary += "</ul>"
 
         return (
             "Dashboard loaded.",
             gr.update(choices=choices, value=pid),
             summary,
-            fig_hist, fig_t, fig_h, fig_s,
-            fig_health, fig_scatter
+            gr.update(visible=True),
+            _hist_plot([v for _, v in pts_s], "Soil moisture distribution", "Soil"),
+            _line_plot(pts_t, "Temperature (°C)", "°C"),
+            _line_plot(pts_h, "Humidity (%)", "%"),
+            _line_plot(pts_s, "Soil moisture trend", "Soil"),
+            _delta_plot(pts_t, pts_h, pts_s),
+            _scatter_plot(xs_s, ys_h, "Soil vs Humidity", "Soil", "Humidity")
         )
 
     refresh_btn.click(
-        fn=load,
+        load,
         inputs=[user_state, plant_dd, days_dd],
         outputs=[
             info, plant_dd, summary_html,
+            plots_wrap,
             p_soil_hist, p_temp, p_hum, p_soil,
-            p_health_trend, p_soil_hum_scatter
+            p_health, p_scatter
         ],
     )

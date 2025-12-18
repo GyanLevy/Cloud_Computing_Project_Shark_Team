@@ -33,7 +33,7 @@ def auth_screen(user_state: gr.State):
         if ok:
             # res is user_data dict (from Firestore)
             username = res.get("username", u)
-            
+
             return username, f" Logged in as (`{username}`)", f" Welcome back!"
         return None, "Not logged in.", f" {res}"
 
