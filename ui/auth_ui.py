@@ -43,7 +43,7 @@ def auth_screen(user_state: gr.State):
             return f" {msg}"
         return f" {msg}"
 
-    login_btn.click(
+    login_event = login_btn.click(
         fn=do_login,
         inputs=[login_username, login_password],
         outputs=[user_state, current_user, login_msg],
@@ -54,4 +54,6 @@ def auth_screen(user_state: gr.State):
         inputs=[reg_username, reg_display, reg_password, reg_email],
         outputs=[reg_msg],
     )
+
+    return login_event
 

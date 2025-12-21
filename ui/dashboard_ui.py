@@ -355,3 +355,11 @@ def dashboard_screen(user_state: gr.State):
             p_health, p_scatter
         ],
     )
+
+    # Return components for external wiring (auto-load on navigation)
+    return refresh_btn, load, [user_state, plant_dd, days_dd], [
+        info, plant_dd, summary_html,
+        plots_wrap,
+        p_soil_hist, p_temp, p_hum, p_soil,
+        p_health, p_scatter
+    ]

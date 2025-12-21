@@ -2,3 +2,12 @@ firebase-admin
 nltk
 google-cloud-firestore
 google-auth
+numpy
+gradio
+matplotlib
+datetime
+requests
+python-docx
+scikit-learn
+sentence-transformers
+chromadb

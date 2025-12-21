@@ -27,11 +27,11 @@ def upload_screen(user_state: gr.State):
         username = _get_username(u)
 
         if not username:
-            return "⚠️ Please login first."
+            return "⚠️ Please login first.", gr.update(), gr.update(), gr.update()
         if img is None:
-            return "⚠️ Please upload an image."
+            return "⚠️ Please upload an image.", gr.update(), gr.update(), gr.update()
         if not str(name).strip():
-            return "⚠️ Please enter plant name."
+            return "⚠️ Please enter plant name.", gr.update(), gr.update(), gr.update()
 
         ok, plant_id_or_err = add_plant_with_image(
             username=username,
@@ -41,12 +41,13 @@ def upload_screen(user_state: gr.State):
         )
 
         if not ok:
-            return f" {plant_id_or_err}"
+            return f"❌ {plant_id_or_err}", gr.update(), gr.update(), gr.update()
 
-        return f"Saved plant **{name}** (id: `{plant_id_or_err}`)"
+        # Success: clear the form for next upload
+        return f"✅ Saved plant **{name}** (id: `{plant_id_or_err}`)", None, "", ""
 
     save_btn.click(
         fn=on_save,
         inputs=[user_state, image_in, plant_name, species],
-        outputs=[status],
+        outputs=[status, image_in, plant_name, species],
     )

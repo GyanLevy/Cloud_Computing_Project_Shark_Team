@@ -64,9 +64,9 @@ def _time_ago(dt: datetime | None) -> str:
     return f"{hrs // 24}d ago"
 
 
-def _compute_overview_metrics():
+def _compute_overview_metrics(username=None):
     try:
-        plants_n = int(count_plants() or 0)
+        plants_n = int(count_plants(username) if username else 0)
     except Exception:
         plants_n = 0
 
@@ -95,13 +95,15 @@ def home_screen():
         # ---------- TOP BAR ----------
         with gr.Row():
             gr.Markdown("## 🌿 My Garden Care")
-            with gr.Row():
-                btn_home = gr.Button("Home", variant="secondary")
-                btn_sensors = gr.Button("Sensors", variant="secondary")
-                btn_search = gr.Button("Search", variant="secondary")
-                btn_dashboard = gr.Button("Plant Dashboard", variant="secondary")
-                btn_upload = gr.Button("Upload a Photo", variant="secondary")
-                btn_auth = gr.Button("Login / Register", variant="primary")
+            user_status_label = gr.Markdown("")
+        with gr.Row(equal_height=True):
+            btn_home = gr.Button("Home", variant="secondary", scale=1, min_width=140)
+            btn_sensors = gr.Button("Sensors", variant="secondary", scale=1, min_width=140)
+            btn_search = gr.Button("Search", variant="secondary", scale=1, min_width=140)
+            btn_dashboard = gr.Button("Plant Dashboard", variant="secondary", scale=1, min_width=140)
+            btn_upload = gr.Button("Upload a Photo", variant="secondary", scale=1, min_width=140)
+            btn_auth = gr.Button("Login / Register", variant="primary", scale=1, min_width=140)
+            logout_btn = gr.Button("Logout", visible=False, scale=1, min_width=140)
 
         gr.Markdown("---")
 
@@ -156,19 +158,19 @@ def home_screen():
             plants_screen(user_state)
 
         with gr.Column(visible=False) as sensors:
-            sensors_screen(user_state)
+            sensors_btn, sensors_load, sensors_inputs, sensors_outputs = sensors_screen(user_state)
 
         with gr.Column(visible=False) as search:
             search_screen()
 
         with gr.Column(visible=False) as dashboard:
-            dashboard_screen(user_state)
+            dashboard_btn, dashboard_load, dashboard_inputs, dashboard_outputs = dashboard_screen(user_state)
 
         with gr.Column(visible=False) as upload:
             upload_screen(user_state)
 
         with gr.Column(visible=False) as auth:
-            auth_screen(user_state)
+            login_event = auth_screen(user_state)
 
         # ---------- NAV ----------
         def go(target):
@@ -185,22 +187,62 @@ def home_screen():
         pages = [home, plants, sensors, search, dashboard, upload, auth]
 
         btn_home.click(lambda: go("home"), outputs=pages)
-        btn_sensors.click(lambda: go("sensors"), outputs=pages)
+        btn_sensors.click(lambda: go("sensors"), outputs=pages).then(
+            fn=sensors_load, inputs=sensors_inputs, outputs=sensors_outputs
+        )
         btn_search.click(lambda: go("search"), outputs=pages)
-        btn_dashboard.click(lambda: go("dashboard"), outputs=pages)
+        btn_dashboard.click(lambda: go("dashboard"), outputs=pages).then(
+            fn=dashboard_load, inputs=dashboard_inputs, outputs=dashboard_outputs
+        )
         btn_upload.click(lambda: go("upload"), outputs=pages)
         btn_auth.click(lambda: go("auth"), outputs=pages)
 
         btn_open_plants.click(lambda: go("plants"), outputs=pages)
-        qa_sensors.click(lambda: go("sensors"), outputs=pages)
+        qa_sensors.click(lambda: go("sensors"), outputs=pages).then(
+            fn=sensors_load, inputs=sensors_inputs, outputs=sensors_outputs
+        )
         qa_upload.click(lambda: go("upload"), outputs=pages)
 
         # ---------- METRICS ----------
-        def refresh_metrics():
-            plants_n, last_reading, avg_soil = _compute_overview_metrics()
+        def refresh_metrics(u):
+            username = u.strip() if isinstance(u, str) else None
+            plants_n, last_reading, avg_soil = _compute_overview_metrics(username)
             return plants_n, last_reading, avg_soil
 
-        btn_refresh.click(refresh_metrics, outputs=[m_plants, m_last, m_avg_soil])
-        app.load(refresh_metrics, outputs=[m_plants, m_last, m_avg_soil])
+        btn_refresh.click(refresh_metrics, inputs=[user_state], outputs=[m_plants, m_last, m_avg_soil])
+        app.load(refresh_metrics, inputs=[user_state], outputs=[m_plants, m_last, m_avg_soil])
+
+        # ---------- LOGOUT LOGIC ----------
+        def do_logout():
+            return (
+                None,  # user_state - clear session
+                gr.update(visible=False),  # home - hide
+                gr.update(visible=False),  # plants - hide
+                gr.update(visible=False),  # sensors - hide
+                gr.update(visible=False),  # search - hide
+                gr.update(visible=False),  # dashboard - hide
+                gr.update(visible=False),  # upload - hide
+                gr.update(visible=True),   # auth - SHOW login screen
+                gr.update(visible=False),  # logout_btn - hide
+                "",  # user_status_label - clear
+                gr.update(visible=True),   # btn_auth - show Login/Register button
+            )
+
+        logout_btn.click(
+            fn=do_logout,
+            outputs=[user_state, home, plants, sensors, search, dashboard, upload, auth, logout_btn, user_status_label, btn_auth]
+        )
+
+        # ---------- LOGIN SUCCESS -> SHOW LOGOUT BTN ----------
+        def on_login_success(username):
+            if username:
+                return gr.update(visible=True), f"👤 Logged in as: **{username}**"
+            return gr.update(visible=False), ""
+
+        login_event.then(
+            fn=on_login_success,
+            inputs=[user_state],
+            outputs=[logout_btn, user_status_label]
+        )
 
     return app

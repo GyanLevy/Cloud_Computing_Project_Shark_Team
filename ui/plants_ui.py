@@ -6,65 +6,25 @@ def _get_username(user_state):
     return user_state.strip() if isinstance(user_state, str) else ""
 
 
-PLANTS_CSS = r"""
-/* Make Gallery look like a clean grid of cards */
-#plants_grid .grid-wrap,
-#plants_grid .gallery{
-  gap: 12px !important;
-}
-
-#plants_grid .thumbnail-item,
-#plants_grid .gallery-item{
-  border-radius: 14px !important;
-  overflow: hidden !important;
-  border: 1px solid rgba(148, 163, 184, 0.35) !important;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.18) !important;
-}
-
-/* image */
-#plants_grid img{
-  width: 100% !important;
-  height: 170px !important;
-  object-fit: cover !important;
-  display: block !important;
-}
-
-/* caption (plant name) */
-#plants_grid figcaption,
-#plants_grid .caption{
-  padding: 10px 12px !important;
-  font-weight: 800 !important;
-  line-height: 1.1 !important;
-}
-
-/* hide the big empty label spacing sometimes */
-#plants_grid .label{
-  margin-bottom: 0 !important;
-}
-"""
-
-
 def plants_screen(user_state: gr.State):
-    # Inject small CSS only for this screen
-    gr.HTML(f"<style>{PLANTS_CSS}</style>")
-
     gr.Markdown("## 🌿 My Plants")
+    gr.Markdown("*Click on any plant image to view it in full size.*")
     info = gr.Markdown()
     refresh_btn = gr.Button("Load Plants", variant="primary")
 
     empty_state = gr.HTML()
 
-    # Keep Gallery (so local paths still work), but style it to look like cards/grid
+    # Elegant grid gallery with preview support
     gallery = gr.Gallery(
         label="",
-        columns=4,
+        columns=3,
         rows=2,
-        height=420,
-        object_fit="cover",
-        allow_preview=False,
+        height=350,
+        object_fit="scale-down",
+        allow_preview=True,
+        preview=True,
         show_label=False,
         visible=False,
-        elem_id="plants_grid",
     )
 
     with gr.Row(visible=False) as delete_row:

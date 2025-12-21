@@ -149,8 +149,8 @@ def count_plants(username: str) -> int:
         return sum(1 for _ in ref.stream())
 
 
-import os
-import uuid
+import io
+from firebase_admin import storage
 
 def add_plant_with_image(
     username: str,
@@ -159,17 +159,10 @@ def add_plant_with_image(
     pil_image=None,
 ) -> tuple[bool, str]:
     """
-    Create a new plant AND save the uploaded PIL image locally.
-    This keeps file-system / persistence logic out of the UI layer.
-
-    Args:
-        username: Owner username
-        name: Plant display name
-        species: Optional species
-        pil_image: PIL image object from Gradio (type="pil")
-
-    Returns:
-        (ok, plant_id_or_error)
+    Create a new plant AND upload the image to Firebase Storage.
+    No local files are saved.
+    
+    Path: user_uploads/{username}/{timestamp}_{uuid}.png
     """
     username = _clean(username)
     name = _clean(name)
@@ -182,22 +175,39 @@ def add_plant_with_image(
     if pil_image is None:
         return False, "Missing image."
 
-    base_dir = os.path.join("uploaded_images", username)
-    os.makedirs(base_dir, exist_ok=True)
-
-    filename = f"{uuid.uuid4().hex[:10]}.png"
-    image_path = os.path.join(base_dir, filename)
-
     try:
-        pil_image.save(image_path)
-    except Exception as e:
-        return False, f"Failed to save image: {e}"
+        # 1. Convert PIL image to bytes
+        img_byte_arr = io.BytesIO()
+        pil_image.save(img_byte_arr, format='PNG')
+        img_bytes = img_byte_arr.getvalue()
+        
+        # 2. Prepare Cloud Storage Path
+        # Naming: user_uploads/alice/20231220-123045_a1b2c3d4.png
+        ts_str = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        unique_id = uuid.uuid4().hex[:8]
+        blob_path = f"user_uploads/{username}/{ts_str}_{unique_id}.png"
+        
+        # 3. Upload to Firebase Storage
+        bucket = storage.bucket() # Uses the bucket configured in config.py
+        blob = bucket.blob(blob_path)
+        
+        print(f"[Storage] Uploading to {blob_path}...")
+        blob.upload_from_string(img_bytes, content_type="image/png")
+        
+        # 4. Make Public and Get URL
+        blob.make_public()
+        public_url = blob.public_url
+        print(f"[Storage] Success! URL: {public_url}")
 
-    # Use your existing add_plant() to store the Firestore doc
+    except Exception as e:
+        print(f"[Error] Storage upload failed: {e}")
+        return False, f"Failed to upload image: {e}"
+
+    # 5. Save metadata to Firestore (using existing add_plant)
     return add_plant(
         username=username,
         name=name,
         species=species,
-        image_path=image_path,
-        image_url="",
+        image_path="",      # No local path
+        image_url=public_url,
     )

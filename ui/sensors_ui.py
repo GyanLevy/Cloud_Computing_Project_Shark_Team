@@ -112,3 +112,6 @@ def sensors_screen(user_state: gr.State):
         inputs=[user_state, plant_dd],
         outputs=[info, plant_dd, m_temp, m_hum, m_soil, history],
     )
+
+    # Return components for external wiring (auto-load on navigation)
+    return refresh_btn, load, [user_state, plant_dd], [info, plant_dd, m_temp, m_hum, m_soil, history]

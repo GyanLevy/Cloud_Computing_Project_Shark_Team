@@ -8,6 +8,7 @@ import requests
 import os
 import glob
 import re
+import concurrent.futures
 from config import get_db as _get_central_db
 import datetime as _dt
 from typing import Optional, List, Dict, Any
@@ -104,25 +105,35 @@ def get_all_readings(limit: Optional[int] = None) -> List[Dict[str, Any]]:
 IOT_SERVER_URL = "https://server-cloud-v645.onrender.com/history"
 
 def sync_iot_data(plant_id: str) -> bool:
-    print("--- Connecting to IoT Server... (This might take time if server is sleeping) ---")
+    print("--- Connecting to IoT Server... (Parallel Fetch) ---")
 
     feeds = ["temperature", "humidity", "soil"]
     sensor_data: Dict[str, float] = {}
 
+    def _fetch(feed):
+        try:
+            # Short timeout to ensure speed
+            resp = requests.get(IOT_SERVER_URL, params={"feed": feed, "limit": 1}, timeout=5)
+            if resp.status_code == 200:
+                d = resp.json()
+                if "data" in d and len(d["data"]) > 0:
+                    val = float(d["data"][0]["value"])
+                    print(f"[IOT] Fetched {feed}: {val}")
+                    return feed, val
+        except Exception as e:
+            print(f"[IOT] Err {feed}: {e}")
+        return feed, None
+
     try:
-        for feed in feeds:
-            response = requests.get(IOT_SERVER_URL, params={"feed": feed, "limit": 1})
-            if response.status_code == 200:
-                data = response.json()
-                if "data" in data and len(data["data"]) > 0:
-                    latest_entry = data["data"][0]
-                    value = float(latest_entry["value"])
-                    sensor_data[feed] = value
-                    print(f"[IOT] Fetched {feed}: {value}")
-                else:
-                    print(f"[IOT] No data for {feed}")
-            else:
-                print(f"[IOT] Error fetching {feed}: {response.status_code}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            # Start all requests
+            futures = [executor.submit(_fetch, f) for f in feeds]
+            
+            # Collect results
+            for future in concurrent.futures.as_completed(futures):
+                f, val = future.result()
+                if val is not None:
+                    sensor_data[f] = val
 
         if sensor_data:
             final_temp = sensor_data.get("temperature")
@@ -313,6 +324,16 @@ def _normalize(tokens, use_stem: bool = True):
 
 def build_index(max_docs: int = 5, use_stem: bool = True, include_title: bool = True):
     db = get_db()
+    
+    # [OPTIMIZATION] Skip if index already exists
+    try:
+        # Check if we have at least one document in the 'index' collection
+        if next(db.collection(INDEX_COL).limit(1).stream(), None):
+            print(f"[OPTIMIZATION] Index '{INDEX_COL}' already exists. Skipping rebuild.")
+            return {}
+    except Exception:
+        pass # If check fails, safe to proceed with build
+
     articles = get_all_articles(limit=max_docs)
     if not articles:
         print("No articles found. Seed articles first.")
