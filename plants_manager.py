@@ -18,8 +18,39 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import uuid
 from typing import Any
+import os
+import re
+import time
+
+# --- New Imports for AI ---
+import google.generativeai as genai
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from config import get_db
+
+
+# ==========================================
+# CACHING LAYER (TTL-based)
+# ==========================================
+
+_plants_cache: dict[str, tuple[list, float]] = {}  # {username: (plants_list, timestamp)}
+_CACHE_TTL_SECONDS = 60  # Cache expires after 60 seconds
+
+
+def clear_plants_cache(username: str = None):
+    """
+    Clear the plants cache.
+    If username is provided, clears only that user's cache.
+    If None, clears entire cache.
+    """
+    global _plants_cache
+    if username:
+        _plants_cache.pop(username, None)
+    else:
+        _plants_cache.clear()
 
 
 def _utc_now_iso() -> str:
@@ -31,6 +62,65 @@ def _clean(s: Any) -> str:
     """Convert input to a trimmed string safely."""
     return str(s).strip() if s is not None else ""
 
+def get_optimal_soil(species_name: str) -> int:
+    """
+    Consults Gemini AI to determine the optimal minimum soil moisture percentage.
+    
+    Args:
+        species_name: The type of plant (e.g., 'Basil', 'Cactus').
+        
+    Returns:
+        int: The minimum soil threshold (0-100). Defaults to 30 if AI fails.
+    """
+    api_key = os.getenv("GOOGLE_API_KEY")
+    
+    # Safety check: If no API key is found, return default immediately
+    if not api_key:
+        print("[AI Warning] No GOOGLE_API_KEY found in .env. Using default 30%.")
+        return 30
+
+   # List of models to try in order (Fallback mechanism)
+    models_to_try = [
+        'gemini-2.0-flash',       # First priority
+        'gemini-2.5-flash',       # Second priority
+        'gemini-flash-latest',    # Fallback generic name
+        'models/gemini-2.0-flash' # Explicit path just in case
+    ]
+    
+    genai.configure(api_key=api_key)
+
+    # Clean the input
+    species_name = species_name.strip()
+
+    prompt = f"""
+    You are an expert agronomist. 
+    I am growing a plant of type: "{species_name}".
+    What is the critical minimum soil moisture percentage (0-100%) this plant needs to survive before it starts wilting?
+    Note: I am measuring soil moisture, NOT air humidity.
+    Return ONLY the number (integer). No text.
+    Example response: 30
+    """
+    # This loop was causing the indentation error - now fixed:
+    for model_name in models_to_try:
+        try:
+            print(f"[AI Agent] Connecting to model: {model_name} for '{species_name}'...")
+            model = genai.GenerativeModel(model_name)
+            
+            response = model.generate_content(prompt)
+            text = response.text.strip()
+            
+            numbers = re.findall(r'\d+', text)
+            if numbers:
+                val = int(numbers[0])
+                if 5 <= val <= 90:
+                    return val
+            
+        except Exception as e:
+            print(f"[AI Log] Model {model_name} failed: {e}")
+            continue
+
+    print("[AI Error] All models failed. Using fallback 30%.")
+    return 30
 
 def add_plant(
     username: str,
@@ -41,13 +131,14 @@ def add_plant(
 ) -> tuple[bool, str]:
     """
     Create a new plant document for a user.
+    Now includes AI-powered humidity threshold detection.
 
     Args:
         username: Owner username (from user_state)
         name: Display name (required)
-        species: Optional
-        image_url: Public URL (preferred, e.g., Firebase Storage)
-        image_path: Local path fallback (optional)
+        species: Optional (used for AI detection)
+        image_url: Public URL
+        image_path: Local path fallback
 
     Returns:
         (ok, plant_id_or_error)
@@ -63,11 +154,25 @@ def add_plant(
     if not name:
         return False, "Plant name is required."
 
+    # --- AI Integration Start ---
+    # Determine minimum humidity based on species
+    optimal_min = 30 # Default value
+
+    # Logic: If species is provided, use it. Otherwise, try to infer from the name.
+    ai_search_term = species if species else name
+
+    if ai_search_term:
+        # Call the helper function to get the SOIL threshold
+        optimal_min = get_optimal_soil(ai_search_term)
+        print(f"[Success] AI set soil threshold for '{name}' to {optimal_min}% (Term: '{ai_search_term}')")
+    # --- AI Integration End ---
+
     plant_id = uuid.uuid4().hex[:8]
     doc = {
         "plant_id": plant_id,
         "name": name,
         "species": species,
+        "min_soil": optimal_min, # <--- Storing the AI result in DB
         "image_url": image_url,
         "image_path": image_path,
         "created_at": _utc_now_iso(),
@@ -79,7 +184,6 @@ def add_plant(
         return True, plant_id
     except Exception as e:
         return False, f"Failed to add plant: {e}"
-
 
 def list_plants(username: str) -> list[dict]:
     """

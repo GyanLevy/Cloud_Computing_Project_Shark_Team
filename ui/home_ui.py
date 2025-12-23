@@ -2,6 +2,7 @@ import gradio as gr
 from datetime import datetime, timezone
 
 from plants_manager import count_plants
+from auth_service import logout_user
 from data_manager import get_all_readings
 
 from ui.plants_ui import plants_screen
@@ -214,6 +215,8 @@ def home_screen():
 
         # ---------- LOGOUT LOGIC ----------
         def do_logout():
+            # Delegate cleanup to auth service
+            logout_user()
             return (
                 None,  # user_state - clear session
                 gr.update(visible=False),  # home - hide
@@ -233,16 +236,24 @@ def home_screen():
             outputs=[user_state, home, plants, sensors, search, dashboard, upload, auth, logout_btn, user_status_label, btn_auth]
         )
 
-        # ---------- LOGIN SUCCESS -> SHOW LOGOUT BTN ----------
+        # ---------- LOGIN SUCCESS -> SHOW LOGOUT BTN + REFRESH METRICS ----------
         def on_login_success(username):
             if username:
-                return gr.update(visible=True), f"👤 Logged in as: **{username}**"
-            return gr.update(visible=False), ""
+                # Refresh metrics on login
+                plants_n, last_reading, avg_soil = _compute_overview_metrics(username)
+                return (
+                    gr.update(visible=True),  # logout_btn
+                    f"👤 Logged in as: **{username}**",  # user_status_label
+                    plants_n,  # m_plants
+                    last_reading,  # m_last
+                    avg_soil,  # m_avg_soil
+                )
+            return gr.update(visible=False), "", 0, "n/a", 0.0
 
         login_event.then(
             fn=on_login_success,
             inputs=[user_state],
-            outputs=[logout_btn, user_status_label]
+            outputs=[logout_btn, user_status_label, m_plants, m_last, m_avg_soil]
         )
 
     return app

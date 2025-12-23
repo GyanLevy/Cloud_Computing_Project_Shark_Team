@@ -759,45 +759,74 @@ def seed_database_with_articles(folder_path: str = "articles_data", do_build_ind
         build_index(max_docs=5, use_stem=True)
 
 def generate_vacation_report(username, days_away):
-    import plants_manager
+    """
+    Generates a survival report with DYNAMIC drying rates based on plant type.
+    Thirsty plants (high threshold) dry faster than hardy plants (low threshold).
+    """
+    import plants_manager 
     from data_manager import get_latest_reading
-
+    
     user_plants = plants_manager.list_plants(username)
     report = []
-
-    DRYING_RATE_PER_DAY = 5
-    CRITICAL_THRESHOLD = 20
-    MAX_DAYS_POSSIBLE = 14
+    
+    MAX_SOIL_CAPACITY = 100.0
+    GLOBAL_MAX_DAYS = 21 
 
     for plant in user_plants:
         plant_id = plant.get("plant_id")
-        plant_name = plant.get("name", "Plant")
+        plant_name = plant.get("name", "Unknown Plant")
+        
+        # 1. Get Threshold
+        plant_threshold = plant.get('min_soil',30)
 
+        # 2. --- SMART LOGIC: Determine Drying Rate ---
+        # If the plant needs a lot of water (threshold > 20%), assumes it dries fast.
+        if plant_threshold > 20:
+            drying_rate = 10.0  # Fast drying (e.g. Basil) - loses 10% per day
+        else:
+            drying_rate = 2.0   # Slow drying (e.g. Cactus) - loses 2% per day
+        # ---------------------------------------------
+
+        # 3. Get Sensor Data
         latest_data = get_latest_reading(plant_id)
-        current_humidity = float(latest_data.get("soil", 0)) if latest_data else 0
+        current_soil = float(latest_data.get("soil", 0)) if latest_data else 0
 
         try:
             days = int(days_away)
-        except:
+        except (ValueError, TypeError):
             days = 0
 
-        predicted = current_humidity - days * DRYING_RATE_PER_DAY
+        # Calculate limits based on the SPECIFIC drying rate
+        max_possible_days = (MAX_SOIL_CAPACITY - plant_threshold) / drying_rate
+        predicted_soil = current_soil - (days * drying_rate)
+        
+        status = ""
+        msg = ""
 
         if not latest_data:
             status = "Unknown ❓"
             msg = "No sensor data available."
-        elif days > MAX_DAYS_POSSIBLE:
+
+        # Case A: Physically impossible to survive this long
+        elif days > max_possible_days:
             status = "CRITICAL 💀"
-            msg = "Vacation too long. Find a plant sitter."
-        elif predicted < CRITICAL_THRESHOLD:
-            days_left = max(0, int((current_humidity - CRITICAL_THRESHOLD) / DRYING_RATE_PER_DAY))
-            status = "DANGER 🚨"
-            msg = f"Will dry out in {days_left} days."
+            msg = f"Cannot survive {days} days. Max capacity is ~{int(max_possible_days)} days. Need a sitter."
+            
+        elif days > GLOBAL_MAX_DAYS:
+            status = "CRITICAL 💀"
+            msg = "Vacation too long. System limit exceeded."
+
+        # Case B: Possible, but needs water NOW
+        elif predicted_soil < plant_threshold:
+            status = "NEEDS WATER 💧"
+            # How much to water?
+            days_left_current = max(0, int((current_soil - plant_threshold) / drying_rate))
+            msg = f"Will dry in {days_left_current} days. Water to 100% BEFORE leaving!"
+
         else:
             status = "SAFE ✅"
-            msg = f"Predicted moisture on return: {int(predicted)}%."
+            msg = f"Predicted: {int(predicted_soil)}% (Min: {plant_threshold}%). Have fun!"
 
-        report.append([plant_name, f"{current_humidity}%", status, msg])
+        report.append([plant_name, f"{current_soil}%", status, msg])
 
     return report
-

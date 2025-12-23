@@ -2,6 +2,10 @@ import os
 import sys
 import firebase_admin
 from firebase_admin import credentials, firestore
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ==========================================
 # PART 1: ENVIRONMENT & PATH CONFIGURATION
@@ -16,12 +20,16 @@ else:
     # Local path (dynamic based on file location)
     PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
+# Check for environment variable first, then fall back to default
 KEY_FILENAME = "serviceAccountKey.json"
-FIREBASE_CRED_PATH = os.path.join(PROJECT_ROOT, KEY_FILENAME)
+DEFAULT_CRED_PATH = os.path.join(PROJECT_ROOT, KEY_FILENAME)
+
+# Priority: ENV variable > Default path > Current directory
+FIREBASE_CRED_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", DEFAULT_CRED_PATH)
 
 # Validate key existence
 if not os.path.exists(FIREBASE_CRED_PATH):
-    # Fallback: check current directory if project root fails
+    # Fallback: check current directory if configured path fails
     if os.path.exists(KEY_FILENAME):
         FIREBASE_CRED_PATH = KEY_FILENAME
     else:

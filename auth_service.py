@@ -2,7 +2,8 @@ import hashlib
 import datetime
 from firebase_admin import firestore  
 from config import get_db
-import gamification_rules 
+import gamification_rules
+from plants_manager import clear_plants_cache
 
 db = get_db()
 
@@ -26,6 +27,15 @@ def _hash_password(password):
 # AUTHENTICATION FUNCTIONS
 # ==========================================
 
+def logout_user():
+    """
+    Handles all cleanup needed when a user logs out.
+    Clears all cached user data for security.
+    """
+    clear_plants_cache()
+    # Add any other cache clearing here in the future
+    return True
+
 def register_user(username, display_name, password, email):
     """
     Registers a new user in Firestore.
@@ -41,6 +51,12 @@ def register_user(username, display_name, password, email):
 
         if len(password) < 6:
             return False, "Error: Password must be at least 6 characters long."
+
+        # Validate email format
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
+            return False, "Error: Please enter a valid email address (e.g., user@example.com)."
 
         # 1. Check if user already exists
         users_ref = db.collection('users').document(username)

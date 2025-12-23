@@ -21,8 +21,8 @@ def sensors_screen(user_state: gr.State):
     info = gr.Markdown()
 
     with gr.Row():
-        plant_dd = gr.Dropdown(label="Choose a plant", choices=[], value=None)
-        refresh_btn = gr.Button("Apply")
+        plant_dd = gr.Dropdown(label="Choose a plant", choices=[], value=None, interactive=True)
+        refresh_btn = gr.Button("🔄 Refresh", variant="secondary", scale=0)
 
     # Latest metrics (NO light)
     with gr.Row():
@@ -99,7 +99,7 @@ def sensors_screen(user_state: gr.State):
             ])
 
         return (
-            f"Showing sensors: ",
+            f"✅ Showing sensors for selected plant",
             gr.update(choices=choices, value=pid),
             _metric_html("Temp (°C)", temp),
             _metric_html("Humidity (%)", hum),
@@ -107,6 +107,14 @@ def sensors_screen(user_state: gr.State):
             rows,
         )
 
+    # Reactive: update when dropdown selection changes
+    plant_dd.change(
+        fn=load,
+        inputs=[user_state, plant_dd],
+        outputs=[info, plant_dd, m_temp, m_hum, m_soil, history],
+    )
+
+    # Manual refresh button (for syncing new IoT data)
     refresh_btn.click(
         fn=load,
         inputs=[user_state, plant_dd],

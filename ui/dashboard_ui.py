@@ -248,13 +248,14 @@ def dashboard_screen(user_state: gr.State):
     info = gr.Markdown()
 
     with gr.Row():
-        plant_dd = gr.Dropdown(label="Choose a plant")
+        plant_dd = gr.Dropdown(label="Choose a plant", interactive=True)
         days_dd = gr.Dropdown(
             choices=[("Last 7 days", 7), ("Last 14 days", 14), ("Last 30 days", 30)],
             value=14,
             label="Range",
+            interactive=True,
         )
-        refresh_btn = gr.Button("Apply")
+        refresh_btn = gr.Button("🔄 Refresh", variant="secondary", scale=0)
 
     summary_html = gr.HTML()
 
@@ -345,6 +346,31 @@ def dashboard_screen(user_state: gr.State):
             _scatter_plot(xs_s, ys_h, "Soil vs Humidity", "Soil", "Humidity")
         )
 
+    # Reactive: update when plant dropdown selection changes
+    plant_dd.change(
+        load,
+        inputs=[user_state, plant_dd, days_dd],
+        outputs=[
+            info, plant_dd, summary_html,
+            plots_wrap,
+            p_soil_hist, p_temp, p_hum, p_soil,
+            p_health, p_scatter
+        ],
+    )
+
+    # Reactive: update when days range changes
+    days_dd.change(
+        load,
+        inputs=[user_state, plant_dd, days_dd],
+        outputs=[
+            info, plant_dd, summary_html,
+            plots_wrap,
+            p_soil_hist, p_temp, p_hum, p_soil,
+            p_health, p_scatter
+        ],
+    )
+
+    # Manual refresh button
     refresh_btn.click(
         load,
         inputs=[user_state, plant_dd, days_dd],

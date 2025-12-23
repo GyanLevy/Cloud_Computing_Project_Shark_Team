@@ -33,26 +33,29 @@ def auth_screen(user_state: gr.State):
         if ok:
             # res is user_data dict (from Firestore)
             username = res.get("username", u)
-
-            return username, f" Logged in as (`{username}`)", f" Welcome back!"
-        return None, "Not logged in.", f" {res}"
+            # Success: clear login fields
+            return username, f"✅ Logged in as (`{username}`)", f"✅ Welcome back!", "", ""
+        # Error: keep fields for retry
+        return None, "Not logged in.", f"❌ {res}", gr.update(), gr.update()
 
     def do_register(u, d, pw, em):
         ok, msg = register_user(u, d, pw, em)
         if ok:
-            return f" {msg}"
-        return f" {msg}"
+            # Success: clear all registration fields
+            return f"✅ {msg}", "", "", "", ""
+        # Error: keep fields for retry
+        return f"❌ {msg}", gr.update(), gr.update(), gr.update(), gr.update()
 
     login_event = login_btn.click(
         fn=do_login,
         inputs=[login_username, login_password],
-        outputs=[user_state, current_user, login_msg],
+        outputs=[user_state, current_user, login_msg, login_username, login_password],
     )
 
     reg_btn.click(
         fn=do_register,
         inputs=[reg_username, reg_display, reg_password, reg_email],
-        outputs=[reg_msg],
+        outputs=[reg_msg, reg_username, reg_display, reg_password, reg_email],
     )
 
     return login_event
