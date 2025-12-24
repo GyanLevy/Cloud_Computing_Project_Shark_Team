@@ -429,10 +429,11 @@ except ImportError:
     SKLEARN_AVAILABLE = False
 
 try:
-    import openai
-    OPENAI_AVAILABLE = True
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
+    GEMINI_AVAILABLE = False
+    print("Warning: google-generativeai not installed. Run: pip install google-generativeai")
 
 
 class SimpleVectorStore:
@@ -485,7 +486,7 @@ class PlantRAG:
     - Generation: OpenAI OR Template fallback
     """
 
-    def __init__(self, openai_api_key: str | None = None):
+    def __init__(self, google_api_key: str | None = None):
         # Embeddings setup
         self.use_transformers = False
         self.use_tfidf = False
@@ -521,12 +522,28 @@ class PlantRAG:
             self.collection = SimpleVectorStore()
             self.use_chromadb = False
 
-        # OpenAI setup (optional)
-        self.use_openai = False
-        if openai_api_key and OPENAI_AVAILABLE:
-            openai.api_key = openai_api_key
-            self.use_openai = True
+        # --- GEMINI SETUP ---
+        self.use_gemini = False
+        
+        # Priority list for models
+        self.models_to_try = [
+            'gemini-2.0-flash',       # First priority
+            'gemini-1.5-flash',       # Stable/Fast
+            'gemini-pro',             # Classic
+            'gemini-flash-latest'     # Fallback generic
+        ]
 
+        # Try to get key from args OR environment variable
+        api_key = google_api_key or os.environ.get("GOOGLE_API_KEY")
+
+        if api_key and GEMINI_AVAILABLE:
+            try:
+                genai.configure(api_key=api_key)
+                self.use_gemini = True
+            except Exception as e:
+                print(f"Gemini config error: {e}")
+                self.use_gemini = False
+        
         self.loaded = False
 
 
@@ -616,55 +633,81 @@ class PlantRAG:
             return self.collection.query(query_embeddings=q_emb, n_results=n_results)
 
 
-    def _template_response(self, question: str, docs: list[str], metas: list[dict], sims: list[float]) -> str:
-        # Instead of printing "found papers", return only an answer-like text
+    def _template_response_smart(self, question: str, docs: list[str]) -> str:
+        """
+        Technical Fallback: Extracts a relevant text window around the search term.
+        This runs when all AI models fail to generate a response.
+        """
         if not docs:
-            return "No results found. Try different keywords."
-
-        # take a few snippets as “context” but don't print a ranked list
-        snippets = []
-        for d in docs[:3]:
-            if not d:
-                continue
-            snippets.append(d[:350].replace("\n", " ").strip())
-
-        # simple “lecturer-friendly” answer (no duplication)
-        return (
-            f"Based on the retrieved papers, here are key points related to **{question}**:\n\n"
-            + "\n".join([f"- {s}..." for s in snippets if s])
-          ).strip()
-
-
+            return "No relevant documents found."
+            
+        # Identify the first keyword (simple heuristic for text search)
+        key_term = question.split()[0].lower() if question else ""
+        
+        # Default snippet: the beginning of the first document
+        best_snippet = docs[0][:400] + "..." 
+        
+        found_better = False
+        if key_term and len(key_term) > 2:
+            for doc in docs:
+                # Search for the keyword within the article content
+                idx = doc.lower().find(key_term)
+                if idx != -1:
+                    # Found the term! Slice a context window around it (approx. 300 chars)
+                    start = max(0, idx - 50)
+                    end = min(len(doc), idx + 350)
+                    best_snippet = "..." + doc[start:end] + "..."
+                    found_better = True
+                    break
+        
+        prefix = "🤖 **AI Service Unavailable.**\nHere is a relevant excerpt from your library:\n\n"
+        return prefix + best_snippet
 
     def generate_response(self, question: str, docs: list[str], metas: list[dict], sims: list[float]) -> str:
+        """
+        Generates an answer using Gemini with a Model Cascade strategy.
+        If all Gemini models fail, falls back to smart snippet extraction.
+        """
+        
+        if not self.use_gemini:
+            return self._template_response_smart(question, docs)
 
-        if self.use_openai:
-            context = "\n\n".join(
-                [f"Title: {m.get('title')}\nContent: {d[:600]}..." for m, d in zip(metas, docs)]
-            )
-            prompt = f"""Answer the question using ONLY the provided sources.
+    
+        context_text = ""
+        for m, d in zip(metas, docs):
+            title = m.get('title', 'Unknown Source')
+            context_text += f"\n---\nTitle: {title}\nExcerpt: {d[:1000]}...\n"
 
-Question: {question}
+        prompt = f"""
+        You are an expert botanist assistant for a smart garden system.
+        
+        Instructions:
+        1. Answer the user's question based PRIMARILY on the provided Context Articles below.
+        2. If the answer is found in the context, cite the title.
+        3. If the answer is NOT in the context, you MUST use your general knowledge to answer, but start your sentence with: "Based on general agricultural knowledge (not from your library)..."
+        4. Keep the answer concise (max 3-4 sentences) and helpful.
 
-Sources:
-{context}
+        User Question: {question}
 
-Return a short helpful answer and mention the most relevant sources."""
+        Context Articles:
+        {context_text}
+        """
+
+        for model_name in self.models_to_try:
             try:
-                resp = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful plant-care assistant."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=350,
-                    temperature=0.3
-                )
-                return resp.choices[0].message.content
-            except Exception:
-                return self._template_response(question, docs, metas, sims)
+                # print(f"Trying model: {model_name}...") # Debug line
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                
+                if response and response.text:
+                    return response.text 
+                    
+            except Exception as e:
+                print(f"Model {model_name} failed: {e}")
+                continue
 
-        return self._template_response(question, docs, metas, sims)
+        print("All Gemini models failed. Switching to Technical Fallback.")
+        return self._template_response_smart(question, docs)
 
 
     def query(self, question: str, top_k: int = 5, fallback_threshold: float = 0.20) -> dict:
