@@ -758,74 +758,98 @@ def seed_database_with_articles(folder_path: str = "articles_data", do_build_ind
         print("Building Index")
         build_index(max_docs=5, use_stem=True)
 
+
 def generate_vacation_report(username, days_away):
     """
-    Generates a survival report with DYNAMIC drying rates based on plant type.
-    Thirsty plants (high threshold) dry faster than hardy plants (low threshold).
-    """
-    import plants_manager 
-    from data_manager import get_latest_reading
+    Generates a survival report utilizing AI for context-aware predictions 
+    (Temperature/Plant Type). Falls back to mathematical logic if AI fails.
     
+    Args:
+        username (str): The user requesting the report.
+        days_away (int): Number of days the user will be away.
+        
+    Returns:
+        list: A list of report rows [Plant Name, Current Soil, Status, Message].
+    """ 
+    import plants_manager
+    from plants_manager import list_plants, get_vacation_advice_ai
+
     user_plants = plants_manager.list_plants(username)
     report = []
     
-    MAX_SOIL_CAPACITY = 100.0
+    # Global safety limit for vacations (in days)
     GLOBAL_MAX_DAYS = 21 
 
     for plant in user_plants:
         plant_id = plant.get("plant_id")
         plant_name = plant.get("name", "Unknown Plant")
-        
-        # 1. Get Threshold
-        plant_threshold = plant.get('min_soil',30)
+        plant_threshold = plant.get('min_soil', 30)
 
-        # 2. --- SMART LOGIC: Determine Drying Rate ---
-        # If the plant needs a lot of water (threshold > 20%), assumes it dries fast.
-        if plant_threshold > 20:
-            drying_rate = 10.0  # Fast drying (e.g. Basil) - loses 10% per day
-        else:
-            drying_rate = 2.0   # Slow drying (e.g. Cactus) - loses 2% per day
-        # ---------------------------------------------
-
-        # 3. Get Sensor Data
+        # 1. Fetch real-time sensor data
         latest_data = get_latest_reading(plant_id)
+        
+        # Default values if no sensor data is found
         current_soil = float(latest_data.get("soil", 0)) if latest_data else 0
+        # Default to 25°C if no temp sensor available
+        current_temp = float(latest_data.get("temp", 25)) if latest_data else 25 
 
         try:
             days = int(days_away)
         except (ValueError, TypeError):
             days = 0
 
-        # Calculate limits based on the SPECIFIC drying rate
-        max_possible_days = (MAX_SOIL_CAPACITY - plant_threshold) / drying_rate
-        predicted_soil = current_soil - (days * drying_rate)
-        
         status = ""
         msg = ""
-
-        if not latest_data:
-            status = "Unknown ❓"
-            msg = "No sensor data available."
-
-        # Case A: Physically impossible to survive this long
-        elif days > max_possible_days:
-            status = "CRITICAL 💀"
-            msg = f"Cannot survive {days} days. Max capacity is ~{int(max_possible_days)} days. Need a sitter."
+        
+        # === AI ENHANCEMENT START ===
+        # Attempt to get smart advice based on temperature and plant species
+        ai_result = get_vacation_advice_ai(
+            plant_name=plant_name,
+            current_soil=current_soil,
+            min_threshold=plant_threshold,
+            current_temp=current_temp,
+            days_away=days
+        )
+        
+        if ai_result:
+            # If AI analysis is successful, use its recommendation
+            status = ai_result.get("status", "UNKNOWN")
             
-        elif days > GLOBAL_MAX_DAYS:
-            status = "CRITICAL 💀"
-            msg = "Vacation too long. System limit exceeded."
-
-        # Case B: Possible, but needs water NOW
-        elif predicted_soil < plant_threshold:
-            status = "NEEDS WATER 💧"
-            # How much to water?
-            days_left_current = max(0, int((current_soil - plant_threshold) / drying_rate))
-            msg = f"Will dry in {days_left_current} days. Water to 100% BEFORE leaving!"
+            # Combine the explanation and the actionable recommendation
+            msg = f"{ai_result.get('message')} -> {ai_result.get('recommendation')}"
+            
+            # Add visual indicators based on status
+            if status == "CRITICAL": status += " 💀"
+            elif status == "NEEDS WATER": status += " 💧"
+            elif status == "SAFE": status += " ✅"
 
         else:
-            status = "SAFE ✅"
-            msg = f"Predicted: {int(predicted_soil)}% (Min: {plant_threshold}%). Have fun!"
+            # === FALLBACK LOGIC ===
+            # Used if AI fails or API key is missing. 
+            # Basic mathematical estimation based on plant thirst level.
+            print(f"[Fallback] Using math logic for {plant_name}")
+            
+            # Estimate drying rate based on threshold (thirstier plants dry faster)
+            if plant_threshold > 20:
+                drying_rate = 10.0  # Fast drying (approx. 10% per day)
+            else:
+                drying_rate = 2.0   # Slow drying (approx. 2% per day)
+
+            predicted_soil = current_soil - (days * drying_rate)
+            
+            if days > GLOBAL_MAX_DAYS:
+                status = "CRITICAL 💀"
+                msg = "Vacation too long. System limit exceeded."
+            elif predicted_soil < plant_threshold:
+                status = "NEEDS WATER 💧"
+                # Calculate how many days until critical level
+                days_left = max(0, int((current_soil - plant_threshold) / drying_rate))
+                msg = f"Will dry in {days_left} days. Water or add irrigation."
+            else:
+                status = "SAFE ✅"
+                msg = f"Predicted soil: {int(predicted_soil)}%. Have fun!"
+        
+        # === END PROCESS ===
 
         report.append([plant_name, f"{current_soil}%", status, msg])
 

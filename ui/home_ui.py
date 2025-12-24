@@ -85,12 +85,27 @@ def _compute_overview_metrics(username=None):
 
     return plants_n, last_reading, avg_soil
 
-
 # =========================
 # HOME SCREEN
 # =========================
 def home_screen():
-    with gr.Blocks(title="My Garden Care", theme=gr.themes.Soft()) as app:
+    """
+    Builds the main dashboard UI.
+    Includes custom CSS to fix table formatting for the Vacation Mode report.
+    """
+    
+    # Custom CSS to control the table layout:
+    # 1. Enforces 'nowrap' on the 3rd column (Status) to keep the icon and text on one line.
+    # 2. Sets a minimum width for readability.
+    custom_css = """
+    .vacation-table td:nth-child(3) { 
+        white-space: nowrap !important; 
+        min-width: 140px;
+    }
+    """
+
+    # Initialize Blocks with the custom CSS
+    with gr.Blocks(title="My Garden Care", theme=gr.themes.Soft(), css=custom_css) as app:
         user_state = gr.State(value=None)
 
         # ---------- TOP BAR ----------
@@ -142,10 +157,15 @@ def home_screen():
                     )
                     check_btn = gr.Button("Check", variant="primary")
 
+                # Table configuration:
+                # - 'column_widths': Allocates 50% width to the Message column to prevent cramping.
+                # - 'elem_classes': Links this component to the 'vacation-table' CSS class defined above.
                 vacation_table = gr.Dataframe(
                     headers=["Plant", "Current Soil", "Status", "Message"],
                     interactive=False,
-                    wrap=True
+                    wrap=True,
+                    column_widths=["15%", "10%", "15%", "60%"], 
+                    elem_classes="vacation-table"
                 )
 
                 check_btn.click(

@@ -185,6 +185,102 @@ def add_plant(
     except Exception as e:
         return False, f"Failed to add plant: {e}"
 
+
+import json
+import os
+import google.generativeai as genai
+
+import json
+import os
+import re
+import google.generativeai as genai
+
+def get_vacation_advice_ai(plant_name, current_soil, min_threshold, current_temp, days_away):
+    """
+    Uses Gemini AI to analyze vacation risk based on real-time temperature and plant type.
+    Includes a fallback mechanism to try multiple models if one fails.
+
+    Args:
+        plant_name (str): The species or name of the plant.
+        current_soil (float): Current soil moisture percentage from sensors.
+        min_threshold (int): The minimum soil moisture required for survival.
+        current_temp (float): Real-time temperature from sensors.
+        days_away (int): Duration of the vacation in days.
+
+    Returns:
+        dict: A dictionary with status, message, and recommendation, or None if all models fail.
+    """
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        print("[System] Missing API Key.")
+        return None
+
+    genai.configure(api_key=api_key)
+
+    # List of models to try in order (Fallback mechanism), same as in get_optimal_soil
+    models_to_try = [
+        'gemini-2.0-flash',       # First priority
+        'gemini-2.5-flash',       # Second priority
+        'gemini-flash-latest',    # Fallback generic name
+        'models/gemini-2.0-flash' # Explicit path just in case
+    ]
+
+    # Construct the prompt
+    prompt = f"""
+    You are an expert botanist.
+    I am going on vacation for {days_away} days.
+    
+    Plant Details:
+    - Type: {plant_name}
+    - Current Soil Moisture: {current_soil}%
+    - Minimum Survival Threshold: {min_threshold}%
+    
+    Environment Conditions (Real-time Sensor):
+    - Indoor Temperature: {current_temp}°C
+    
+    Task:
+    1. Analyze if the temperature indicates fast evaporation (Summer/Hot) or slow (Winter/Cold).
+    2. Estimate the daily soil moisture loss % for this specific plant at this temperature.
+    3. Determine if the plant will survive without intervention.
+    4. Recommend action: "Water heavily now" OR "Must install automatic irrigation system".
+    
+    Return ONLY a valid JSON object in this format:
+    {{
+        "status": "SAFE" or "NEEDS WATER" or "CRITICAL",
+        "message": "Short explanation mentioning temp effect (e.g., 'High heat (30C) increases drying rate')",
+        "recommendation": "The specific action to take"
+    }}
+    """
+
+    # Retry Loop: Try each model until one succeeds
+    for model_name in models_to_try:
+        try:
+            print(f"[AI Agent] Connecting to model: {model_name} for vacation advice...")
+            model = genai.GenerativeModel(model_name)
+            
+            response = model.generate_content(prompt)
+            text = response.text.strip()
+            
+            # Clean up Markdown formatting if present (```json ... ```)
+            if text.startswith("```json"):
+                text = text[7:-3].strip()
+            elif text.startswith("```"):
+                text = text[3:-3].strip()
+            
+            # Try to parse JSON
+            result = json.loads(text)
+            
+            # If successful, return the result immediately
+            return result
+
+        except Exception as e:
+            print(f"[AI Log] Model {model_name} failed: {e}")
+            # Continue to the next model in the list
+            continue
+
+    print("[AI Error] All models failed. Returning None (fallback to math logic).")
+    return None
+
 def list_plants(username: str) -> list[dict]:
     """
     List all plants for the given user.
