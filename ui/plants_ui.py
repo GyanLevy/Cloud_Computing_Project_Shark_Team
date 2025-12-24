@@ -1,16 +1,35 @@
+
 import gradio as gr
 from plants_manager import list_plants, delete_plant
 
 
 def _get_username(user_state):
+    # Helper: Extract username from the shared user_state.
+    # Args:
+    #     user_state: expected to be a string username or None.
+    # Returns:
+    #     str: username if logged-in, else "".
     return user_state.strip() if isinstance(user_state, str) else ""
 
 
 def plants_screen(user_state: gr.State):
+  #   Plants gallery screen.
+  #   The screen shows:
+  #   - Gallery of plant images (previewable)
+  #   - A delete dropdown + delete button (only visible when data exists)
+  #   Args:
+  #       user_state (gr.State): shared state holding username string or None.
+  #   Returns:
+  #       tuple:
+  #           (refresh_btn, load_fn, inputs_list, outputs_list)
+
     gr.Markdown("## 🌿 My Plants")
     gr.Markdown("*Click on any plant image to view it in full size.*")
     info = gr.Markdown()
-    refresh_btn = gr.Button("Load Plants", variant="primary")
+    # refresh_btn = gr.Button("Load Plants", variant="primary")
+    # Manual fallback. We hide it visually by default (scale=0),
+    # but keep it for resilience/debugging.
+    refresh_btn = gr.Button("Load plants", variant="secondary", scale=0)
 
     empty_state = gr.HTML()
 
@@ -34,13 +53,18 @@ def plants_screen(user_state: gr.State):
     del_status = gr.Markdown()
 
     def load(u):
+      #   Load plants for current user:
+      #   - If not logged-in -> show 'login required'
+      #   - If no plants -> show empty state
+      #   - Else -> fill gallery + delete dropdown
+
         username = _get_username(u)
 
         # --- Not logged in ---
         if not username:
             return (
                 "⚠️ Please login to see your plants.",
-                '<div class="card"><h3>🔒 Login required</h3><p>Please login, then press <b>Load Plants</b>.</p></div>',
+                '<div class="card"><h3>🔒 Login required</h3><p>Please login.</p></div>',
                 gr.update(visible=False, value=[]),
                 gr.update(visible=False),
                 gr.update(choices=[], value=None),
@@ -97,6 +121,8 @@ def plants_screen(user_state: gr.State):
         )
 
     def on_delete(u, pid):
+      #   Delete selected plant (by id), then reload UI state.
+
         username = _get_username(u)
         if not username:
             return load(u)
@@ -119,4 +145,9 @@ def plants_screen(user_state: gr.State):
         fn=on_delete,
         inputs=[user_state, plant_to_delete],
         outputs=[info, empty_state, gallery, delete_row, plant_to_delete, del_status]
+
     )
+    
+    # Return wiring for auto-load on navigation
+    return refresh_btn, load, [user_state], [info, empty_state, gallery, delete_row, plant_to_delete, del_status]
+

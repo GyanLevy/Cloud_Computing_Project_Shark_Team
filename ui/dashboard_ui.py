@@ -1,4 +1,4 @@
-# ui/dashboard_ui.py
+
 import html
 import datetime as dt
 import gradio as gr
@@ -14,7 +14,6 @@ from data_manager import get_latest_reading, get_sensor_history, sync_iot_data
 
 def _get_username(user_state):
     return user_state.strip() if isinstance(user_state, str) else ""
-
 
 def _plant_label(p: dict) -> str:
     pid = p.get("plant_id", "") or p.get("id", "")
@@ -105,143 +104,136 @@ def _health_eval(latest: dict):
 
 
 def _health_score_only(reading: dict) -> int:
-    if not reading:
-        return 0
+    score, _, _ = _health_eval(reading)
+    return score
 
-    score = 100
-    try:
-        if reading.get("soil") is not None:
-            s = float(reading["soil"])
-            if s < 30:
-                score -= 25
-            elif s > 70:
-                score -= 20
+# ======================================================
+# Matplotlib  styling
+# ======================================================
+def _palette(is_dark: bool):
+    """Color palette depending on current theme."""
+    if is_dark:
+        return {
+            "bg": "#0b1220",
+            "fg": "#e2e8f0",
+            "grid": "#334155",
+        }
+    return {
+        "bg": "#ffffff",
+        "fg": "#0f172a",
+        "grid": "#cbd5e1",
+    }
 
-        if reading.get("temp") is not None:
-            t = float(reading["temp"])
-            if t < 15 or t > 30:
-                score -= 15
-
-        if reading.get("humidity") is not None:
-            h = float(reading["humidity"])
-            if h < 35 or h > 75:
-                score -= 10
-    except Exception:
-        pass
-
-    return max(0, min(100, int(round(score))))
-
-
-# =========================
-# Plot styling (Dark mode)
-# =========================
-
-def _style_axes(ax):
-    ax.set_facecolor("#0b1220")
-    for side in ["top", "right"]:
-        ax.spines[side].set_visible(False)
-    for side in ["left", "bottom"]:
-        ax.spines[side].set_color("#334155")
-
-    ax.tick_params(colors="#e2e8f0")
-    ax.yaxis.label.set_color("#e2e8f0")
-    ax.xaxis.label.set_color("#e2e8f0")
-    ax.title.set_color("#e2e8f0")
-    ax.grid(True, alpha=0.25)
-
-
-def _line_plot(points, title, y_label):
-    fig = plt.figure(figsize=(7, 3.2))
-    fig.patch.set_facecolor("#0b1220")
+def _styled_fig(is_dark: bool, size=(7, 3.2)):
+    pal = _palette(is_dark)
+    fig = plt.figure(figsize=size)
+    fig.patch.set_facecolor(pal["bg"])
     ax = fig.add_subplot(111)
 
+    ax.set_facecolor(pal["bg"])
+    ax.tick_params(colors=pal["fg"])
+    ax.xaxis.label.set_color(pal["fg"])
+    ax.yaxis.label.set_color(pal["fg"])
+    ax.title.set_color(pal["fg"])
+
+    for spine in ["top", "right"]:
+        ax.spines[spine].set_visible(False)
+    for spine in ["left", "bottom"]:
+        ax.spines[spine].set_color(pal["grid"])
+
+    ax.grid(True, alpha=0.3, color=pal["grid"])
+    return fig, ax
+
+# def _style_axes(ax):
+#     ax.set_facecolor("#0b1220")
+#     for side in ["top", "right"]:
+#         ax.spines[side].set_visible(False)
+#     for side in ["left", "bottom"]:
+#         ax.spines[side].set_color("#334155")
+
+#     ax.tick_params(colors="#e2e8f0")
+#     ax.yaxis.label.set_color("#e2e8f0")
+#     ax.xaxis.label.set_color("#e2e8f0")
+#     ax.title.set_color("#e2e8f0")
+#     ax.grid(True, alpha=0.25)
+
+# =========================
+# Plot builders (Light-only / default matplotlib)
+# =========================
+def _line_plot(points, title, ylabel):
+    fig = plt.figure(figsize=(7, 3.2))
+    ax = fig.add_subplot(111)
     ax.set_title(title, fontweight="bold")
     ax.set_xlabel("Time")
-    ax.set_ylabel(y_label)
-
+    ax.set_ylabel(ylabel)
     if points:
         xs, ys = zip(*points)
         ax.plot(xs, ys, linewidth=2.4)
-
-    _style_axes(ax)
+    ax.grid(True, alpha=0.25)
     fig.autofmt_xdate()
     fig.tight_layout()
     return fig
 
 
-def _hist_plot(values, title, x_label):
+def _hist_plot(values, title, xlabel):
     fig = plt.figure(figsize=(7, 3.2))
-    fig.patch.set_facecolor("#0b1220")
     ax = fig.add_subplot(111)
-
     ax.set_title(title, fontweight="bold")
-    ax.set_xlabel(x_label)
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("Count")
-
     if values:
         ax.hist(values, bins=10, alpha=0.9)
-
-    _style_axes(ax)
+    ax.grid(True, alpha=0.25)
     fig.tight_layout()
     return fig
 
 
-def _scatter_plot(xs, ys, title, x_label, y_label):
+def _scatter_plot(xs, ys, title, xlabel, ylabel):
     fig = plt.figure(figsize=(7, 3.2))
-    fig.patch.set_facecolor("#0b1220")
     ax = fig.add_subplot(111)
-
     ax.set_title(title, fontweight="bold")
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
     if xs and ys:
         ax.scatter(xs, ys, s=45, alpha=0.85)
-
-    _style_axes(ax)
+    ax.grid(True, alpha=0.25)
     fig.tight_layout()
     return fig
 
 
-def _delta_plot(points_temp, points_hum, points_soil):
+def _delta_plot(t, h, s):
     fig = plt.figure(figsize=(7, 3.2))
-    fig.patch.set_facecolor("#0b1220")
     ax = fig.add_subplot(111)
 
     ax.set_title("Change between samples (Δ)", fontweight="bold")
     ax.set_xlabel("Time")
     ax.set_ylabel("Δ value")
 
-    def deltas(points):
-        return [
-            (points[i][0], points[i][1] - points[i - 1][1])
-            for i in range(1, len(points))
-        ]
+    def delta(points):
+        return [(points[i][0], points[i][1] - points[i - 1][1]) for i in range(1, len(points))]
 
-    if len(points_temp) > 1:
-        xs, ys = zip(*deltas(points_temp))
+    if len(t) > 1:
+        xs, ys = zip(*delta(t))
         ax.plot(xs, ys, label="Δ Temp")
-
-    if len(points_hum) > 1:
-        xs, ys = zip(*deltas(points_hum))
+    if len(h) > 1:
+        xs, ys = zip(*delta(h))
         ax.plot(xs, ys, label="Δ Humidity")
-
-    if len(points_soil) > 1:
-        xs, ys = zip(*deltas(points_soil))
+    if len(s) > 1:
+        xs, ys = zip(*delta(s))
         ax.plot(xs, ys, label="Δ Soil")
 
-    _style_axes(ax)
     ax.legend(frameon=False)
+    ax.grid(True, alpha=0.25)
     fig.autofmt_xdate()
     fig.tight_layout()
     return fig
-
 
 # =========================
 # UI
 # =========================
 
 def dashboard_screen(user_state: gr.State):
+
     gr.Markdown("## 🌿 Plant Dashboard")
     gr.Markdown("Visual overview based on **real IoT data**.")
 
@@ -255,14 +247,13 @@ def dashboard_screen(user_state: gr.State):
             label="Range",
             interactive=True,
         )
-        refresh_btn = gr.Button("🔄 Refresh", variant="secondary", scale=0)
+        refresh_btn = gr.Button("Refresh", variant="secondary", scale=0)
 
     summary_html = gr.HTML()
 
     # -------- PLOTS (hidden by default) --------
-    plots_wrap = gr.Column(visible=False)
-
-    with plots_wrap:
+    plots = gr.Column(visible=False)
+    with plots:
         with gr.Row():
             p_soil_hist = gr.Plot()
             p_temp = gr.Plot()
@@ -346,29 +337,37 @@ def dashboard_screen(user_state: gr.State):
             _scatter_plot(xs_s, ys_h, "Soil vs Humidity", "Soil", "Humidity")
         )
 
-    # Reactive: update when plant dropdown selection changes
-    plant_dd.change(
-        load,
-        inputs=[user_state, plant_dd, days_dd],
-        outputs=[
-            info, plant_dd, summary_html,
-            plots_wrap,
-            p_soil_hist, p_temp, p_hum, p_soil,
-            p_health, p_scatter
-        ],
-    )
 
-    # Reactive: update when days range changes
-    days_dd.change(
-        load,
-        inputs=[user_state, plant_dd, days_dd],
-        outputs=[
-            info, plant_dd, summary_html,
-            plots_wrap,
-            p_soil_hist, p_temp, p_hum, p_soil,
-            p_health, p_scatter
-        ],
-    )
+    for c in (plant_dd, days_dd):
+        c.change(
+            load,
+            inputs=[user_state, plant_dd, days_dd],
+            outputs=[info, plant_dd, summary_html, plots,p_soil_hist, p_temp, p_hum, p_soil,
+            p_health, p_scatter],
+        )
+    # # Reactive: update when plant dropdown selection changes
+    # plant_dd.change(
+    #     load,
+    #     inputs=[user_state, plant_dd, days_dd],
+    #     outputs=[
+    #         info, plant_dd, summary_html,
+    #         plots_wrap,
+    #         p_soil_hist, p_temp, p_hum, p_soil,
+    #         p_health, p_scatter
+    #     ],
+    # )
+
+    # # Reactive: update when days range changes
+    # days_dd.change(
+    #     load,
+    #     inputs=[user_state, plant_dd, days_dd],
+    #     outputs=[
+    #         info, plant_dd, summary_html,
+    #         plots_wrap,
+    #         p_soil_hist, p_temp, p_hum, p_soil,
+    #         p_health, p_scatter
+    #     ],
+    # )
 
     # Manual refresh button
     refresh_btn.click(
@@ -376,7 +375,7 @@ def dashboard_screen(user_state: gr.State):
         inputs=[user_state, plant_dd, days_dd],
         outputs=[
             info, plant_dd, summary_html,
-            plots_wrap,
+            plots,
             p_soil_hist, p_temp, p_hum, p_soil,
             p_health, p_scatter
         ],
@@ -385,7 +384,7 @@ def dashboard_screen(user_state: gr.State):
     # Return components for external wiring (auto-load on navigation)
     return refresh_btn, load, [user_state, plant_dd, days_dd], [
         info, plant_dd, summary_html,
-        plots_wrap,
+        plots,
         p_soil_hist, p_temp, p_hum, p_soil,
         p_health, p_scatter
     ]
