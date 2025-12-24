@@ -197,7 +197,8 @@ def home_screen():
             upload_screen(user_state)
 
         with gr.Column(visible=True) as auth:
-            login_event = auth_screen(user_state)
+            login_event, auth_current_user, auth_login_msg, auth_reg_msg = auth_screen(user_state)
+
 
         # ---------- NAV ----------
         def go(target):
@@ -296,11 +297,14 @@ def home_screen():
                 gr.update(visible=True),     # auth
                 gr.update(visible=True),     # logout_btn (inside hidden nav anyway)
                 "",                          # user_status_label
+                "Not logged in.",            # auth_current_user
+                "",                          # auth_login_msg
+                "",                          # auth_reg_msg
             )
 
         logout_btn.click(
             fn=do_logout,
-            outputs=[user_state, nav_row, home, plants, sensors, search, dashboard, upload, auth, logout_btn, user_status_label]
+            outputs=[user_state, nav_row, home, plants, sensors, search, dashboard, upload, auth, logout_btn, user_status_label, auth_current_user, auth_login_msg, auth_reg_msg]
         )
 
 

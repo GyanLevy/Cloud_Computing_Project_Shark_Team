@@ -90,5 +90,6 @@ def auth_screen(user_state: gr.State):
         ],
     )
 
-    return login_event
+    return login_event, current_user, login_msg, reg_msg
+
 
