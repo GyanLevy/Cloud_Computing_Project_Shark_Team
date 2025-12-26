@@ -2,7 +2,18 @@
 
 ## System Overview
 
-This document provides a comprehensive architecture diagram of the **My Garden Care** cloud-based plant management system.
+This document provides a comprehensive architecture diagram of the **My Garden Care** cloud-based plant management system, running from a **single Google Colab notebook**.
+
+---
+
+## Deployment Environment
+
+| Component         | Details                                          |
+| ----------------- | ------------------------------------------------ |
+| **Runtime**       | Google Colab (Python 3.10+)                      |
+| **Execution**     | Single Jupyter notebook with `%%writefile` cells |
+| **Public Access** | Gradio's `share=True` generates public URL       |
+| **Session**       | Ephemeral (files lost on runtime restart)        |
 
 ---
 
@@ -10,69 +21,106 @@ This document provides a comprehensive architecture diagram of the **My Garden C
 
 ```mermaid
 graph TD
-    subgraph User["👤 User"]
-        Browser["Web Browser"]
-    end
-
-    subgraph Presentation["🎨 Presentation Layer (Gradio UI)"]
-        main["main.py<br/>Entry Point"]
-        home_ui["home_ui.py<br/>Main App Shell"]
-
-        subgraph UI_Screens["UI Screens"]
-            auth_ui["auth_ui.py<br/>Login/Register"]
-            plants_ui["plants_ui.py<br/>My Plants Gallery"]
-            sensors_ui["sensors_ui.py<br/>IoT Sensors"]
-            dashboard_ui["dashboard_ui.py<br/>Plant Dashboard"]
-            upload_ui["upload_ui.py<br/>Upload Photos"]
-            search_ui["search_ui.py<br/>RAG Search"]
+    subgraph Colab["☁️ Google Colab Notebook"]
+        subgraph Cells["� Notebook Cells"]
+            setup["Cell 1: pip install + uploads"]
+            writefile["Cell 2-N: %%writefile modules"]
+            run["Final Cell: !python main.py"]
         end
-    end
 
-    subgraph Logic["⚙️ Logic/Service Layer"]
-        auth_service["auth_service.py<br/>• register_user<br/>• login_user<br/>• update_score<br/>• leaderboard"]
-        plants_manager["plants_manager.py<br/>• add_plant<br/>• list_plants<br/>• delete_plant<br/>• upload_image"]
-        data_manager["data_manager.py<br/>• IoT sync<br/>• Sensor history<br/>• Articles CRUD<br/>• RAG/Vector Search"]
-        gamification["gamification_rules.py<br/>• Points system<br/>• Weekly challenges<br/>• User ranks"]
-    end
+        subgraph Presentation["🎨 Presentation Layer (Gradio UI)"]
+            main["main.py<br/>Entry Point<br/>+ Background Scheduler"]
+            home_ui["home_ui.py<br/>Main App Shell"]
 
-    subgraph Data["💾 Data Access Layer"]
-        config["config.py<br/>• Firebase init<br/>• Singleton DB client<br/>• Storage bucket"]
+            subgraph UI_Screens["UI Screens"]
+                auth_ui["auth_ui.py"]
+                plants_ui["plants_ui.py"]
+                sensors_ui["sensors_ui.py"]
+                dashboard_ui["dashboard_ui.py"]
+                upload_ui["upload_ui.py"]
+                search_ui["search_ui.py"]
+            end
+        end
+
+        subgraph Logic["⚙️ Logic/Service Layer"]
+            auth_service["auth_service.py"]
+            plants_manager["plants_manager.py<br/>+ AI + Caching"]
+            data_manager["data_manager.py"]
+            gamification["gamification_rules.py"]
+        end
+
+        subgraph Data["💾 Data Access"]
+            config["config.py"]
+            env[".env file"]
+            serviceKey["serviceAccountKey.json"]
+        end
     end
 
     subgraph External["☁️ External Infrastructure"]
         subgraph Firebase["Firebase Platform"]
-            Firestore["Firestore DB<br/>• users/{username}<br/>• users/{}/plants/{}<br/>• sensors<br/>• articles<br/>• index"]
-            Storage["Cloud Storage<br/>• user_uploads/{user}/*.png"]
+            Firestore["Firestore DB"]
+            Storage["Cloud Storage"]
         end
-
-        IoT_Server["External IoT Server<br/>render.com<br/>/history endpoint"]
+        IoT_Server["IoT Server<br/>render.com"]
+        Gemini_AI["Google Gemini AI"]
     end
 
-    %% User Flow
-    Browser --> main
+    subgraph User["👤 User"]
+        Browser["Web Browser<br/>(via Gradio public URL)"]
+    end
+
+    %% Colab Flow
+    setup --> writefile
+    writefile --> run
+    run --> main
+
+    %% App Flow
     main --> home_ui
     home_ui --> UI_Screens
 
-    %% UI to Logic connections
+    %% Logic connections
     auth_ui --> auth_service
     plants_ui --> plants_manager
     sensors_ui --> data_manager
     dashboard_ui --> data_manager
-    dashboard_ui --> plants_manager
     upload_ui --> plants_manager
     search_ui --> data_manager
 
-    %% Logic interdependencies
-    auth_service --> gamification
-    auth_service --> config
-    plants_manager --> config
-    data_manager --> config
-
-    %% Data Layer to Firebase
+    %% External connections
     config --> Firestore
     config --> Storage
-    plants_manager --> Storage
+    plants_manager --> Gemini_AI
     data_manager --> IoT_Server
+    main -.->|"Auto-fetch every 10 min"| data_manager
+
+    %% User access
+    Browser --> main
+```
+
+---
+
+## Colab Notebook Structure
+
+```python
+# Cell 1: Setup
+!pip install -q gradio firebase-admin google-generativeai python-dotenv nltk ...
+
+# Cell 2: Upload required files
+# - serviceAccountKey.json (Firebase credentials)
+# - .env (API keys)
+# - articles_data/*.txt (Knowledge base articles)
+
+# Cells 3-N: Write module files
+%%writefile config.py
+# ... config code ...
+
+%%writefile plants_manager.py
+# ... plants_manager code ...
+
+# ... more %%writefile cells for each module ...
+
+# Final Cell: Run Application
+!python main.py
 ```
 
 ---
@@ -81,67 +129,43 @@ graph TD
 
 ### 🎨 Presentation Layer
 
-| File              | Purpose                                                 |
-| ----------------- | ------------------------------------------------------- |
-| `main.py`         | Application entry point, initializes DB and launches UI |
-| `home_ui.py`      | Main shell with navigation, logout, metrics overview    |
-| `auth_ui.py`      | Login/Register forms                                    |
-| `plants_ui.py`    | Gallery view of user's plants                           |
-| `sensors_ui.py`   | IoT sensor data display                                 |
-| `dashboard_ui.py` | Plant health dashboard with charts                      |
-| `upload_ui.py`    | Photo upload interface                                  |
-| `search_ui.py`    | RAG-powered knowledge base search                       |
+| File                 | Purpose                                                                 |
+| -------------------- | ----------------------------------------------------------------------- |
+| `main.py`            | Entry point, background auto-fetcher, launches Gradio with `share=True` |
+| `ui/home_ui.py`      | Main shell, navigation (hidden until login), vacation mode              |
+| `ui/auth_ui.py`      | Login/Register with auto-clear                                          |
+| `ui/plants_ui.py`    | Plant gallery with reactive loading                                     |
+| `ui/sensors_ui.py`   | IoT sensor display with reactive dropdown                               |
+| `ui/dashboard_ui.py` | Health charts with reactive controls                                    |
+| `ui/upload_ui.py`    | Photo upload with auto-clear                                            |
+| `ui/search_ui.py`    | RAG-powered knowledge search                                            |
 
 ### ⚙️ Logic/Service Layer
 
-| File                    | Purpose                                                     |
-| ----------------------- | ----------------------------------------------------------- |
-| `auth_service.py`       | User authentication, password hashing, gamification scoring |
-| `plants_manager.py`     | Plant CRUD operations, image upload to Cloud Storage        |
-| `data_manager.py`       | IoT data sync, sensor history, articles, RAG vector search  |
-| `gamification_rules.py` | Points definitions, weekly challenges, user ranks           |
+| File                    | Purpose                                            |
+| ----------------------- | -------------------------------------------------- |
+| `auth_service.py`       | Authentication, SHA-256 hashing, logout cleanup    |
+| `plants_manager.py`     | Plant CRUD, **AI soil detection**, **TTL caching** |
+| `data_manager.py`       | IoT sync, sensor history, **vacation report**, RAG |
+| `gamification_rules.py` | Points, challenges, ranks                          |
 
 ### 💾 Data Access Layer
 
-| File        | Purpose                                                               |
-| ----------- | --------------------------------------------------------------------- |
-| `config.py` | Firebase initialization (singleton), Firestore client, Storage bucket |
-
-### ☁️ External Infrastructure
-
-| Service           | Purpose                                                |
-| ----------------- | ------------------------------------------------------ |
-| **Firestore**     | Document database for users, plants, sensors, articles |
-| **Cloud Storage** | Image storage for plant photos                         |
-| **IoT Server**    | External sensor data source (Render.com)               |
+| File        | Purpose                                         |
+| ----------- | ----------------------------------------------- |
+| `config.py` | Firebase init, Firestore client, `.env` support |
 
 ---
 
-## Data Flow Examples
+## Key Features
 
-### 1️⃣ User Registration
-
-```
-Browser → auth_ui.py → auth_service.register_user() → config.get_db() → Firestore (users collection)
-```
-
-### 2️⃣ Upload Plant Photo
-
-```
-Browser → upload_ui.py → plants_manager.add_plant_with_image() → Cloud Storage → Firestore (plants subcollection)
-```
-
-### 3️⃣ View Sensor Data
-
-```
-Browser → sensors_ui.py → data_manager.sync_iot_data() → IoT Server API → Firestore → sensors_ui.py → Browser
-```
-
-### 4️⃣ RAG Search
-
-```
-Browser → search_ui.py → data_manager.PlantRAG.query() → Vector Store + Articles → LLM/Template → Browser
-```
+| Feature                  | Implementation                                         |
+| ------------------------ | ------------------------------------------------------ |
+| 🤖 **AI Soil Detection** | Gemini AI determines optimal soil moisture per species |
+| ⏰ **Auto-Fetcher**      | Background thread syncs IoT every 10 minutes           |
+| ⚡ **TTL Caching**       | `list_plants()` cached for 60 seconds                  |
+| 🔄 **Reactive UI**       | Dropdowns trigger immediate data refresh               |
+| 🔐 **Login-First**       | Auth screen shown first, nav hidden until login        |
 
 ---
 
@@ -150,10 +174,9 @@ Browser → search_ui.py → data_manager.PlantRAG.query() → Vector Store + Ar
 ```
 📁 users/{username}
     ├── display_name, email, password (hashed)
-    ├── score, tasks_completed
-    ├── challenge_state
+    ├── score, tasks_completed, challenge_state
     └── 📁 plants/{plant_id}
-            └── name, species, image_url, created_at
+            └── name, species, image_url, min_soil, created_at
 
 📁 sensors/{doc_id}
     └── plant_id, temp, humidity, soil, timestamp
@@ -164,3 +187,37 @@ Browser → search_ui.py → data_manager.PlantRAG.query() → Vector Store + Ar
 📁 index/{term}
     └── doc_ids[], term
 ```
+
+---
+
+## Required Files (Upload to Colab)
+
+| File                     | Description                             |
+| ------------------------ | --------------------------------------- |
+| `serviceAccountKey.json` | Firebase service account credentials    |
+| `.env`                   | Contains `GOOGLE_API_KEY` for Gemini AI |
+| `articles_data/*.txt`    | Knowledge base articles for RAG         |
+
+---
+
+## Environment Variables (`.env`)
+
+```env
+GOOGLE_API_KEY=your_gemini_api_key
+FIREBASE_CREDENTIALS_PATH=./serviceAccountKey.json
+```
+
+---
+
+## Technology Stack
+
+| Category     | Technologies                         |
+| ------------ | ------------------------------------ |
+| **Runtime**  | Google Colab (Jupyter)               |
+| **Frontend** | Gradio (Glass theme, `share=True`)   |
+| **Backend**  | Python 3.10+                         |
+| **Database** | Firebase Firestore                   |
+| **Storage**  | Firebase Cloud Storage               |
+| **AI**       | Google Gemini (gemini-2.0-flash)     |
+| **NLP/RAG**  | SentenceTransformers, ChromaDB, NLTK |
+| **IoT**      | External REST API (Render.com)       |

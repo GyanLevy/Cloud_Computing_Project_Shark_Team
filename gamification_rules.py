@@ -38,10 +38,13 @@ ACTIONS = {
         "points": 25,
         "description": "User completed a maintenance task"
     },
-    # הוספנו את זה כדי שהלוגיקה תהיה ברורה, למרות שזה 0
     "USE_SEARCH": {
         "points": 0,
         "description": "Using the RAG Knowledge Base"
+    },
+    "ADD_PLANT": {
+        "points": 15,
+        "description": "Adding a new plant to the garden"
     }
 }
 

@@ -211,9 +211,7 @@ def extract_article_metadata(title: str, content: str, url: str | None = None) -
 
 
 def read_text_from_file(file_path):
-    """
-    פונקציה חכמה שקוראת טקסט מקובץ לפי הסוג שלו (docx או txt).
-    """
+    """Reads text from a file (.docx or .txt)."""
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".docx":
@@ -227,7 +225,7 @@ def read_text_from_file(file_path):
             print(f"Error reading DOCX {file_path}: {e}")
             return ""
 
-    else: # ברירת מחדל: קובץ טקסט רגיל
+    else:
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 return f.read()

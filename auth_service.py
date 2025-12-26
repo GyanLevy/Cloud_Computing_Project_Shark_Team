@@ -12,15 +12,9 @@ db = get_db()
 # ==========================================
 
 def _hash_password(password):
-    """
-    Converts a plain text password into a secure hash (SHA-256).
-    Example: "123456" -> "8d969eef6ecad3c29a3a629280e686cf..."
-    """
-    # 1. Encode the string to bytes
+    """SHA-256 hash of password."""
     password_bytes = password.encode('utf-8')
-    # 2. Use SHA-256 hashing algorithm
     hash_object = hashlib.sha256(password_bytes)
-    # 3. Return the hexadecimal representation
     return hash_object.hexdigest()
 
 # ==========================================
@@ -28,18 +22,11 @@ def _hash_password(password):
 # ==========================================
 
 def logout_user():
-    """
-    Handles all cleanup needed when a user logs out.
-    Clears all cached user data for security.
-    """
+    """Clears cached user data on logout."""
     clear_plants_cache()
-    # Add any other cache clearing here in the future
     return True
 
 def register_user(username, display_name, password, email):
-    """
-    Registers a new user in Firestore.
-    """
     try:
         # Validation: Ensure fields are not empty 
         if not username or not password or not email or not display_name:
@@ -196,16 +183,14 @@ def update_weekly_challenge_progress(username, action_type):
                 'last_updated': firestore.SERVER_TIMESTAMP
             }
 
-        # --- התיקון נמצא כאן: החזרת נתונים מלאים גם אם האתגר הושלם ---
-        # 4. If already completed, return full data structure to prevent KeyErrors
+        # If already completed, return full data structure to prevent KeyErrors
         if challenge_state.get('is_completed'):
              return {
                 "relevant": True,
                 "completed": True,
-                # אנחנו מחזירים את ההתקדמות הקיימת, או את היעד כברירת מחדל
                 "progress": challenge_state.get('progress', current_challenge['target']), 
                 "target": current_challenge['target'],
-                "bonus_awarded": 0, # אין בונוס חדש כי כבר קיבלת אותו
+                "bonus_awarded": 0,
                 "msg": "Challenge already completed for this week."
             }
 

@@ -12,10 +12,7 @@ import time
 AUTO_FETCH_INTERVAL_SECONDS = 600  # 10 minutes
 
 def _get_all_plant_ids():
-    """
-    Fetches all plant IDs from all users in the system.
-    Returns list of plant_id strings.
-    """
+    """Returns all plant_id strings from all users."""
     db = config.get_db()
     plant_ids = []
     
@@ -38,10 +35,7 @@ def _get_all_plant_ids():
 
 
 def _auto_fetch_loop():
-    """
-    Background loop that periodically syncs IoT data for all plants.
-    Runs forever until the main application exits.
-    """
+    """Background loop - syncs IoT data every 10 minutes."""
     print("[AutoFetch] Background scheduler started (10-minute interval)")
     
     while True:
@@ -72,10 +66,7 @@ def _auto_fetch_loop():
 
 
 def start_background_scheduler():
-    """
-    Starts the background auto-fetcher thread.
-    Thread is daemon so it shuts down when main app exits.
-    """
+    """Starts daemon thread for auto-fetching."""
     thread = threading.Thread(target=_auto_fetch_loop, daemon=True)
     thread.start()
     print("[AutoFetch] Background thread initialized")

@@ -41,11 +41,7 @@ _CACHE_TTL_SECONDS = 60  # Cache expires after 60 seconds
 
 
 def clear_plants_cache(username: str = None):
-    """
-    Clear the plants cache.
-    If username is provided, clears only that user's cache.
-    If None, clears entire cache.
-    """
+    """Clears plant list cache. If username given, only that user's cache."""
     global _plants_cache
     if username:
         _plants_cache.pop(username, None)
@@ -63,15 +59,7 @@ def _clean(s: Any) -> str:
     return str(s).strip() if s is not None else ""
 
 def get_optimal_soil(species_name: str) -> int:
-    """
-    Consults Gemini AI to determine the optimal minimum soil moisture percentage.
-    
-    Args:
-        species_name: The type of plant (e.g., 'Basil', 'Cactus').
-        
-    Returns:
-        int: The minimum soil threshold (0-100). Defaults to 30 if AI fails.
-    """
+    """Uses Gemini AI to get optimal soil moisture for a plant. Returns 30 on failure."""
     api_key = os.getenv("GOOGLE_API_KEY")
     
     # Safety check: If no API key is found, return default immediately
@@ -129,20 +117,7 @@ def add_plant(
     image_url: str = "",
     image_path: str = "",
 ) -> tuple[bool, str]:
-    """
-    Create a new plant document for a user.
-    Now includes AI-powered humidity threshold detection.
-
-    Args:
-        username: Owner username (from user_state)
-        name: Display name (required)
-        species: Optional (used for AI detection)
-        image_url: Public URL
-        image_path: Local path fallback
-
-    Returns:
-        (ok, plant_id_or_error)
-    """
+    """Creates a plant document with AI-powered soil threshold detection."""
     username = _clean(username)
     name = _clean(name)
     species = _clean(species)
@@ -196,20 +171,6 @@ import re
 import google.generativeai as genai
 
 def get_vacation_advice_ai(plant_name, current_soil, min_threshold, current_temp, days_away):
-    """
-    Uses Gemini AI to analyze vacation risk based on real-time temperature and plant type.
-    Includes a fallback mechanism to try multiple models if one fails.
-
-    Args:
-        plant_name (str): The species or name of the plant.
-        current_soil (float): Current soil moisture percentage from sensors.
-        min_threshold (int): The minimum soil moisture required for survival.
-        current_temp (float): Real-time temperature from sensors.
-        days_away (int): Duration of the vacation in days.
-
-    Returns:
-        dict: A dictionary with status, message, and recommendation, or None if all models fail.
-    """
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         print("[System] Missing API Key.")

@@ -45,11 +45,7 @@ import json
 _DB_CLIENT = None
 
 def get_db():
-    """
-    Returns a consistent Firestore client instance.
-    Initializes the app only if it hasn't been initialized yet.
-    Prevents 'App already exists' errors.
-    """
+    """Returns singleton Firestore client. Initializes Firebase if needed."""
     global _DB_CLIENT
     
     # Return existing instance if available
