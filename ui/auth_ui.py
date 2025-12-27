@@ -41,15 +41,30 @@ def auth_screen(user_state: gr.State):
 
     # ---------- handlers ----------
     def do_login(u, p):
-    
+        # --- 1. Validation: Empty Fields ---
+        if not u or not u.strip():
+            gr.Warning("⚠️ Please enter a username.")
+            # Return None for user, and empty strings to clear fields
+            return None, "Not logged in", "", "", ""
+            
+        if not p or not p.strip():
+            gr.Warning("⚠️ Please enter a password.")
+            return None, "Not logged in", "", "", ""
+
+        # --- 2. Validation: Authentication ---
         ok, res = login_user(u, p)
-        if ok:
-            # res is user_data dict (from Firestore)
-            username = res.get("username", u)
-            # Success: clear login fields
-            return username, f"✅ Logged in as (`{username}`)", f"✅ Welcome back!", "", ""
-        # Error: keep fields for retry
-        return None, "Not logged in.", f"❌ {res}", gr.update(), gr.update()
+        
+        if not ok:
+            # Use Warning for popup message + clear fields
+            gr.Warning(f"❌ Login failed. {res}")
+            return None, "Not logged in", "", "", ""
+
+        # --- 3. Success Flow ---
+        # res is user_data dict (from Firestore)
+        username = res.get("username", u)
+        
+        # Success: return username and clear password field
+        return username, f"✅ Logged in as (`{username}`)", f"✅ Welcome back!", "", ""
 
     def do_register(u, d, pw, em):
         ok, msg = register_user(u, d, pw, em)
