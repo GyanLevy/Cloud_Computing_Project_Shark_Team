@@ -17,15 +17,19 @@ from ui.auth_ui import auth_screen
 # =========================
 # Vacation mode bridge
 # =========================
-def run_vacation_check(days, current_username):
+def run_vacation_check(days, current_username, progress=gr.Progress(track_tqdm=True)):
     if days is None:
         return []
 
     if not current_username:
         return [["Error", "-", "❌", "No user logged in"]]
 
+    # Create a callback wrapper for Gradio progress
+    def gradio_callback(pct, desc=""):
+        progress(pct, desc=desc)
+
     from data_manager import generate_vacation_report
-    return generate_vacation_report(current_username, days)
+    return generate_vacation_report(current_username, days, progress_callback=gradio_callback)
 
 
 # =========================

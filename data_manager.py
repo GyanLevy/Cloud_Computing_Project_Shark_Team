@@ -578,11 +578,12 @@ class PlantRAG:
                 continue
 
             documents.append(text)
+            raw_metadata = a.get("metadata") or {}
             metadatas.append({
-            "title": title,
-            "article_id": a.get("id"),
-            "url": a.get("url"),
-            "metadata": a.get("metadata") or {},
+                "title": str(title),
+                "article_id": str(a.get("id", "")),
+                "url": str(a.get("url", "")),
+                "metadata": str(raw_metadata),
             })
 
             ids.append(f"article_{i}")
@@ -708,10 +709,18 @@ class PlantRAG:
         return self._template_response_smart(question, docs)
 
 
-    def query(self, question: str, top_k: int = 5, fallback_threshold: float = 0.20) -> dict:
+    def query(self, question: str, top_k: int = 5, fallback_threshold: float = 0.20, progress_callback=None) -> dict:
+        # Progress: Initializing
+        if progress_callback:
+            progress_callback(0.1, desc="Initializing RAG & Loading Knowledge Base...")
+        
         if not self.loaded:
             self.load_from_firestore()
 
+        # Progress: Generating embeddings
+        if progress_callback:
+            progress_callback(0.3, desc="Generating Vector Embeddings...")
+        
         res = self.search(question, n_results=top_k)
 
         docs = res["documents"][0]
@@ -752,7 +761,15 @@ class PlantRAG:
                 "metadata": (m.get("metadata") or {}),
             })
 
+        # Progress: Consulting AI
+        if progress_callback:
+            progress_callback(0.6, desc="Consulting Gemini AI...")
+        
         response_text = self.generate_response(question, docs, metas, sims)
+
+        # Progress: Formatting
+        if progress_callback:
+            progress_callback(0.9, desc="Formatting Answer...")
 
         return {
             "response": response_text,
@@ -800,7 +817,7 @@ def seed_database_with_articles(folder_path: str = "articles_data", do_build_ind
         build_index(max_docs=5, use_stem=True)
 
 
-def generate_vacation_report(username, days_away):
+def generate_vacation_report(username, days_away, progress_callback=None):
     """
     Generates a survival report utilizing AI for context-aware predictions 
     (Temperature/Plant Type). Falls back to mathematical logic if AI fails.
@@ -808,6 +825,7 @@ def generate_vacation_report(username, days_away):
     Args:
         username (str): The user requesting the report.
         days_away (int): Number of days the user will be away.
+        progress_callback: Optional callback for progress updates.
         
     Returns:
         list: A list of report rows [Plant Name, Current Soil, Status, Message].
@@ -815,17 +833,26 @@ def generate_vacation_report(username, days_away):
     import plants_manager
     from plants_manager import list_plants, get_vacation_advice_ai
 
+    if progress_callback:
+        progress_callback(0.1, desc="Loading your plants...")
+    
     user_plants = plants_manager.list_plants(username)
     report = []
     
     # Global safety limit for vacations (in days)
     GLOBAL_MAX_DAYS = 21 
-
-    for plant in user_plants:
+    
+    total_plants = len(user_plants)
+    for idx, plant in enumerate(user_plants):
         plant_id = plant.get("plant_id")
         plant_name = plant.get("name", "Unknown Plant")
         plant_threshold = plant.get('min_soil', 30)
 
+        # Progress: Fetching IoT data
+        if progress_callback:
+            progress = 0.2 + (0.3 * idx / max(total_plants, 1))
+            progress_callback(progress, desc=f"Fetching sensor data for {plant_name}...")
+        
         # 1. Fetch real-time sensor data
         latest_data = get_latest_reading(plant_id)
         
@@ -843,6 +870,11 @@ def generate_vacation_report(username, days_away):
         msg = ""
         
         # === AI ENHANCEMENT START ===
+        # Progress: Consulting AI
+        if progress_callback:
+            progress = 0.5 + (0.3 * idx / max(total_plants, 1))
+            progress_callback(progress, desc=f"Consulting AI for {plant_name}...")
+        
         # Attempt to get smart advice based on temperature and plant species
         ai_result = get_vacation_advice_ai(
             plant_name=plant_name,

@@ -1,4 +1,5 @@
 import gradio as gr
+import ast
 from data_manager import PlantRAG
 
 _RAG = None
@@ -19,8 +20,12 @@ def _fmt_paper_lines(chunks, limit: int = 3) -> str:
     for i, c in enumerate(chunks, start=1):
         title = (c.get("title") or "Untitled").strip()
         url = (c.get("url") or "").strip()
-
         meta = c.get("metadata") or {}
+        if isinstance(meta, str):
+            try:
+                meta = ast.literal_eval(meta)
+            except Exception:
+                meta = {}
         authors = (meta.get("authors") or "").strip()
         journal = (meta.get("journal") or "").strip()
         year = (meta.get("year") or "").strip()
@@ -61,12 +66,16 @@ def _fmt_paper_lines(chunks, limit: int = 3) -> str:
 
 
 
-def run_query(question: str, top_k: int = 3) -> str:
+def run_query(question: str, top_k: int = 3, progress=gr.Progress(track_tqdm=True)) -> str:
     q = (question or "").strip()
     if not q:
         return "⚠️ Please enter a question."
 
-    out = _get_rag().query(q, top_k=int(top_k))
+    # Create a callback wrapper for Gradio progress
+    def gradio_callback(pct, desc=""):
+        progress(pct, desc=desc)
+    
+    out = _get_rag().query(q, top_k=int(top_k), progress_callback=gradio_callback)
 
     answer = (out.get("response") or "").strip()
     chunks = out.get("chunks") or []

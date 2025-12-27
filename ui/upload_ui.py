@@ -23,7 +23,7 @@ def upload_screen(user_state: gr.State):
             save_btn = gr.Button("Save to My Plants", variant="primary")
             status = gr.Markdown("")
 
-    def on_save(u, img, name, sp):
+    def on_save(u, img, name, sp, progress=gr.Progress(track_tqdm=True)):
         username = _get_username(u)
 
         if not username:
@@ -33,11 +33,16 @@ def upload_screen(user_state: gr.State):
         if not str(name).strip():
             return "⚠️ Please enter plant name.", gr.update(), gr.update(), gr.update()
 
+        # Create a callback wrapper for Gradio progress
+        def gradio_callback(pct, desc=""):
+            progress(pct, desc=desc)
+
         ok, plant_id_or_err = add_plant_with_image(
             username=username,
             name=name,
             species=sp or "",
             pil_image=img,
+            progress_callback=gradio_callback,
         )
 
         if not ok:
@@ -51,3 +56,4 @@ def upload_screen(user_state: gr.State):
         inputs=[user_state, image_in, plant_name, species],
         outputs=[status, image_in, plant_name, species],
     )
+

@@ -21,6 +21,7 @@ from typing import Any
 import os
 import re
 import time
+import threading
 
 # --- New Imports for AI ---
 import google.generativeai as genai
@@ -318,6 +319,7 @@ def add_plant_with_image(
     name: str,
     species: str = "",
     pil_image=None,
+    progress_callback=None,
 ) -> tuple[bool, str]:
     """
     Create a new plant AND upload the image to Firebase Storage.
@@ -337,19 +339,26 @@ def add_plant_with_image(
         return False, "Missing image."
 
     try:
+        # Progress: Processing image
+        if progress_callback:
+            progress_callback(0.1, desc="Processing & resizing image...")
+        
         # 1. Convert PIL image to bytes
         img_byte_arr = io.BytesIO()
         pil_image.save(img_byte_arr, format='PNG')
         img_bytes = img_byte_arr.getvalue()
         
         # 2. Prepare Cloud Storage Path
-        # Naming: user_uploads/alice/20231220-123045_a1b2c3d4.png
         ts_str = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         unique_id = uuid.uuid4().hex[:8]
         blob_path = f"user_uploads/{username}/{ts_str}_{unique_id}.png"
         
+        # Progress: Uploading
+        if progress_callback:
+            progress_callback(0.3, desc="Uploading to Cloud Storage...")
+        
         # 3. Upload to Firebase Storage
-        bucket = storage.bucket() # Uses the bucket configured in config.py
+        bucket = storage.bucket()
         blob = bucket.blob(blob_path)
         
         print(f"[Storage] Uploading to {blob_path}...")
@@ -364,11 +373,36 @@ def add_plant_with_image(
         print(f"[Error] Storage upload failed: {e}")
         return False, f"Failed to upload image: {e}"
 
-    # 5. Save metadata to Firestore (using existing add_plant)
-    return add_plant(
+    # Progress: AI Analysis
+    if progress_callback:
+        progress_callback(0.5, desc="Analyzing plant species via AI...")
+
+    # 5. Save metadata to Firestore (using existing add_plant which calls AI)
+    ok, result = add_plant(
         username=username,
         name=name,
         species=species,
-        image_path="",      # No local path
+        image_path="",
         image_url=public_url,
     )
+    
+    # Progress: Saving
+    if progress_callback:
+        progress_callback(0.8, desc="Saving metadata to database...")
+    
+    # 6. Fire-and-forget IoT sync (non-blocking)
+    if ok:
+        if progress_callback:
+            progress_callback(0.9, desc="Success! Triggering background sensor sync...")
+        
+        def _background_sync():
+            try:
+                import data_manager
+                data_manager.sync_iot_data(result)
+                print(f"[Background] IoT sync completed for plant {result}")
+            except Exception as e:
+                print(f"[Background] IoT sync failed: {e}")
+        
+        threading.Thread(target=_background_sync, daemon=True).start()
+    
+    return ok, result
