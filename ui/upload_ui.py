@@ -1,11 +1,9 @@
 import gradio as gr
 from plants_manager import add_plant_with_image
-
+import logic_handler  
 
 def _get_username(user_state):
-    """Extract username string from Gradio State (or empty string)."""
     return user_state.strip() if isinstance(user_state, str) else ""
-
 
 def upload_screen(user_state: gr.State):
     """Upload UI: collects image + metadata and delegates saving to plants_manager."""
@@ -15,7 +13,6 @@ def upload_screen(user_state: gr.State):
 
         with gr.Column(scale=6):
             image_in = gr.Image(label="Upload a plant photo", type="pil")
-
 
         with gr.Column(scale=6):
             plant_name = gr.Textbox(label="Plant name", placeholder="e.g., My Basil")
@@ -45,15 +42,25 @@ def upload_screen(user_state: gr.State):
             progress_callback=gradio_callback,
         )
 
+        res = logic_handler.handle_add_plant_gamification(username, ok)
+        
+        points_earned = 0
+        if isinstance(res, tuple):
+            points_earned = res[0] 
+        elif isinstance(res, int):
+            points_earned = res
+
         if not ok:
             return f"❌ {plant_id_or_err}", gr.update(), gr.update(), gr.update()
 
-        # Success: clear the form for next upload
-        return f"✅ Saved plant **{name}** (id: `{plant_id_or_err}`)", None, "", ""
+        msg = f"✅ Saved plant **{name}** (id: `{plant_id_or_err}`)"
+        if points_earned > 0:
+            msg += f"\n🎉 **You earned {points_earned} XP!**"
 
+        return msg, None, "", ""
+    
     save_btn.click(
         fn=on_save,
         inputs=[user_state, image_in, plant_name, species],
         outputs=[status, image_in, plant_name, species],
     )
-

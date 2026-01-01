@@ -1,9 +1,9 @@
-
-import config
-import data_manager
-from ui.home_ui import home_screen
 import threading
 import time
+from config import get_db
+from ui.home_ui import home_screen
+import data_manager
+import plants_manager
 
 # ==========================================
 # BACKGROUND AUTO-FETCHER
@@ -13,7 +13,7 @@ AUTO_FETCH_INTERVAL_SECONDS = 600  # 10 minutes
 
 def _get_all_plant_ids():
     """Returns all plant_id strings from all users."""
-    db = config.get_db()
+    db = get_db()
     plant_ids = []
     
     try:
@@ -23,9 +23,9 @@ def _get_all_plant_ids():
             username = user_doc.id
             # Get all plants for this user
             plants = db.collection("users").document(username).collection("plants").stream()
-            for plant_doc in plants:
-                plant_data = plant_doc.to_dict()
-                pid = plant_data.get("plant_id")
+            user_plants = plants_manager.list_plants(username)
+            for plant in user_plants:
+                pid = plant.get("plant_id")
                 if pid:
                     plant_ids.append(pid)
     except Exception as e:
@@ -82,10 +82,10 @@ def main():
     
     # 1. Initialize Infrastructure
     try:
-        db = config.get_db()
+        db = get_db()
         print("[OK] Database Connected")
         
-        # 2. Setup/Seed Data (if needed)
+        # 2. Setup/Seed Data (Critical for RAG/Search)
         try:
             data_manager.seed_database_with_articles()
             print("[OK] Knowledge Base Ready")

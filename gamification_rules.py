@@ -26,32 +26,32 @@ ACTIONS = {
         "points": 10,
         "description": "Fertilizing a single plant"
     },
-    "UPLOAD_PHOTO": {
-        "points": 20,
-        "description": "Scanning a plant with AI"
-    },
-    "EARLY_DETECTION": {
-        "points": 40,
-        "description": "System detected an issue early"
-    },
-    "PREVENTIVE_ACTION": {
-        "points": 25,
-        "description": "User completed a maintenance task"
-    },
     "USE_SEARCH": {
-        "points": 0,
+        "points": 5,
         "description": "Using the RAG Knowledge Base"
     },
     "ADD_PLANT": {
-        "points": 15,
+        "points": 25,
         "description": "Adding a new plant to the garden"
     }
 }
 
 # ==========================================
-# 2. WEEKLY CHALLENGES
+# 2. RANKS (TAGS) DEFINITION
 # ==========================================
-# Cycle through these challenges (one per week).
+# Based on Total Score (Lifetime)
+
+RANKS = [
+    {"name": "Fresh Sprout",      "min_score": 0},    # 0 - 200
+    {"name": "Diligent Gardener", "min_score": 201},  # 201 - 500
+    {"name": "Growth Expert",     "min_score": 501},  # 501 - 1000
+    {"name": "Garden Master",     "min_score": 1001}  # 1001+
+]
+
+# ==========================================
+# 3. WEEKLY CHALLENGES (LEGACY / OPTIONAL)
+# ==========================================
+# Kept for future use, currently we focus on the "Garden Race" daily tasks.
 
 WEEKLY_CHALLENGES = [
     {
@@ -81,20 +81,8 @@ WEEKLY_CHALLENGES = [
 ]
 
 # ==========================================
-# 3. HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS
 # ==========================================
-
-# Global variable to store the forced challenge ID (None = Auto/Calendar Mode)
-_FORCED_CHALLENGE_ID = None
-
-def set_challenge_mode(mode_id):
-    """
-    Sets the challenge mode.
-    None = Use Real Calendar.
-    1, 2, 3 = Force specific challenge ID.
-    """
-    global _FORCED_CHALLENGE_ID
-    _FORCED_CHALLENGE_ID = mode_id
 
 def get_points_for_action(action_key):
     """
@@ -104,40 +92,32 @@ def get_points_for_action(action_key):
         return ACTIONS[action_key]["points"]
     return 0
 
+def get_user_rank(total_score):
+    """
+    Calculates the rank based on cumulative total score.
+    Iterates through RANKS to find the highest matching tier.
+    """
+    # Default to the lowest rank
+    current_rank = RANKS[0]["name"]
+    
+    # Check against thresholds
+    for rank in RANKS:
+        if total_score >= rank["min_score"]:
+            current_rank = rank["name"]
+            
+    return current_rank
+
+# --- Helper for Weekly Challenge (Legacy Support) ---
+_FORCED_CHALLENGE_ID = None
+
 def get_current_weekly_challenge():
-    # 1. Check if a specific challenge is forced (Manual Mode)
-    if _FORCED_CHALLENGE_ID is not None:
-        # Find the challenge with the specific ID
-        for challenge in WEEKLY_CHALLENGES:
-            if challenge['id'] == _FORCED_CHALLENGE_ID:
-                return challenge
-    
-    # 2. If no force (Auto Mode), use the Real Calendar logic
-    # Calculate week number (1-52)
-    current_week = datetime.date.today().isocalendar()[1]
-    
-    # Cycle through challenges
-    challenge_index = current_week % len(WEEKLY_CHALLENGES)
-    return WEEKLY_CHALLENGES[challenge_index]
-
-def get_user_rank(current_score):
     """
-    Simple rank calculation based on total score.
+    Returns the current active challenge.
+    Currently defaults to the first one if used.
     """
-    if current_score < 100:
-        return "Beginner"
-    elif current_score < 500:
-        return "Advanced"
-    elif current_score < 1000:
-        return "Pro"
-    else:
-        return "Master"
-
-# ==========================================
-# TEST BLOCK
-# ==========================================
-if __name__ == "__main__":
-    print("--- GAMIFICATION RULES CHECK ---")
-    print(f"Adding Plant Points: {get_points_for_action('ADD_PLANT')}")
-    print(f"Current Challenge: {get_current_weekly_challenge()['title']}")
-    print("Rules are valid.")
+    if _FORCED_CHALLENGE_ID:
+        for c in WEEKLY_CHALLENGES:
+            if c['id'] == _FORCED_CHALLENGE_ID: return c
+            
+    # Simple logic: Just return the first one for now to avoid errors
+    return WEEKLY_CHALLENGES[0]

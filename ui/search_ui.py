@@ -1,6 +1,7 @@
 import gradio as gr
 import ast
 from data_manager import PlantRAG
+import logic_handler
 
 _RAG = None
 
@@ -66,12 +67,19 @@ def _fmt_paper_lines(chunks, limit: int = 3) -> str:
 
 
 
-def run_query(question: str, top_k: int = 3, progress=gr.Progress(track_tqdm=True)) -> str:
+def run_query(username, question, top_k, progress=gr.Progress(track_tqdm=True)) -> str:
     q = (question or "").strip()
     if not q:
         return "⚠️ Please enter a question."
 
-    # Create a callback wrapper for Gradio progress
+    points_earned = 0
+    if username:
+        res = logic_handler.handle_search_gamification(username, q)
+        if isinstance(res, tuple):
+            points_earned = res[0]
+        elif isinstance(res, int):
+            points_earned = res
+
     def gradio_callback(pct, desc=""):
         progress(pct, desc=desc)
     
@@ -82,6 +90,11 @@ def run_query(question: str, top_k: int = 3, progress=gr.Progress(track_tqdm=Tru
     papers_found = int(out.get("papers_found") or len(chunks))
 
     md = []
+    
+    if points_earned > 0:
+        md.append(f"🎉 _You earned **{points_earned} XP** for checking facts!_")
+        md.append("") 
+        
     md.append("### Research-based Answer")
     md.append("")
     md.append(answer if answer else "_No answer returned._")
@@ -93,8 +106,7 @@ def run_query(question: str, top_k: int = 3, progress=gr.Progress(track_tqdm=Tru
 
     return "\n".join(md)
 
-
-def search_screen():
+def search_screen(user_state):
     gr.Markdown("## Search Articles")
     gr.Markdown("Ask a question. We'll search the knowledge base and return the most relevant papers.")
 
@@ -111,8 +123,9 @@ def search_screen():
 
     output = gr.Markdown(value="")
 
-    submit.click(run_query, inputs=[question, top_k], outputs=[output])
-    question.submit(run_query, inputs=[question, top_k], outputs=[output])
+    submit.click(run_query, inputs=[user_state, question, top_k], outputs=[output])
+    question.submit(run_query, inputs=[user_state, question, top_k], outputs=[output])
+    
     clear.click(lambda: ("", 3, ""), outputs=[question, top_k, output])
 
     return output
