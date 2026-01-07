@@ -477,18 +477,16 @@ class SimpleVectorStore:
 
 
 class PlantRAG:
-    """
-    Lecturer-style RAG:
-    - Embeddings: SentenceTransformer OR TF-IDF fallback
-    - Vector store: ChromaDB OR SimpleVectorStore fallback
-    - Generation: OpenAI OR Template fallback
-    """
 
     def __init__(self, google_api_key: str | None = None):
         # Embeddings setup
         self.use_transformers = False
         self.use_tfidf = False
         self.fitted = False
+        self._docs_raw = []
+        self._metas_raw = []
+        self._doc_tfidf = None   # matrix for docs (sklearn)
+
 
         if TRANSFORMERS_AVAILABLE:
             try:
@@ -497,11 +495,12 @@ class PlantRAG:
             except Exception:
                 self.use_transformers = False
 
-        if (not self.use_transformers):
-            if not SKLEARN_AVAILABLE:
-                raise RuntimeError("No SentenceTransformers and no sklearn TF-IDF available. Install sentence-transformers or scikit-learn.")
+        if SKLEARN_AVAILABLE:
             self.tfidf = TfidfVectorizer(max_features=2000, stop_words="english")
             self.use_tfidf = True
+        else:
+            self.use_tfidf = False
+
 
         # Vector store setup
         self.use_chromadb = False
@@ -544,6 +543,9 @@ class PlantRAG:
         
         self.loaded = False
 
+        self.use_index_filter = True
+        self.index_max_docs = 5
+
 
     def preprocess_text(self, text: str) -> str:
         if not text:
@@ -556,11 +558,10 @@ class PlantRAG:
         if self.use_transformers:
             return self.embedding_model.encode(texts, show_progress_bar=False)
 
-        # TF-IDF fallback
         if not self.fitted:
-            self.tfidf.fit(texts)
-            self.fitted = True
+            raise RuntimeError("TF-IDF not fitted yet. Call load_from_firestore() first.")
         return self.tfidf.transform(texts).toarray()
+
 
 
     def load_from_firestore(self, limit: int | None = None):
@@ -591,6 +592,15 @@ class PlantRAG:
         if not documents:
             raise RuntimeError("No articles with content found in Firestore.")
 
+        self._docs_raw = documents
+        self._metas_raw = metadatas
+
+        if self.use_tfidf:
+            # Fit once on documents
+            self.tfidf.fit(documents)
+            self._doc_tfidf = self.tfidf.transform(documents)
+            self.fitted = True
+
         emb = self.generate_embeddings(documents)
 
 
@@ -620,6 +630,44 @@ class PlantRAG:
 
         self.loaded = True
         return len(documents)
+
+    def _lexical_scores(self, query: str) -> list[float]:
+        if not self.use_tfidf or self._doc_tfidf is None:
+            return [0.0] * len(self._docs_raw)
+
+        q_vec = self.tfidf.transform([query])  # transform only
+        sims = cosine_similarity(self._doc_tfidf, q_vec).reshape(-1)
+        return [float(x) for x in sims]
+    
+    def _hybrid_rerank(self, question: str, docs, metas, sims, alpha: float = 0.75):
+        """
+        alpha=0.75 => 75% semantic, 25% lexical
+        """
+        q = self.preprocess_text(question)
+
+        # lexical scores only if TF-IDF available
+        lex_scores_all = self._lexical_scores(q) if self.use_tfidf else None
+
+        reranked = []
+        for doc, meta, sem in zip(docs, metas, sims):
+            lex = 0.0
+            if lex_scores_all is not None:
+                # match doc in the raw list (safe for 5 docs)
+                try:
+                    idx = self._docs_raw.index(doc)
+                    lex = lex_scores_all[idx]
+                except ValueError:
+                    lex = 0.0
+
+            title = (meta.get("title") or "").lower()
+            title_boost = 0.05 if any(w in title for w in q.lower().split()[:3]) else 0.0
+
+            final = alpha * float(sem) + (1 - alpha) * float(lex) + title_boost
+            reranked.append((final, sem, lex, doc, meta))
+
+        reranked.sort(key=lambda x: x[0], reverse=True)
+        return reranked
+
 
 
     def search(self, query: str, n_results: int = 5):
@@ -709,6 +757,52 @@ class PlantRAG:
         return self._template_response_smart(question, docs)
 
 
+    def _build_docnum_to_articleid(self) -> dict[str, str]:
+        articles = get_all_articles(limit=self.index_max_docs)
+        mapping = {}
+        for i, a in enumerate(articles, start=1):
+            mapping[f"doc_{i}"] = str(a.get("id", ""))
+        return mapping
+
+
+    def _fetch_docids_from_index(self, terms: list[str]) -> set[str]:
+        db = get_db()
+        out = set()
+        for term in terms:
+            try:
+                snap = db.collection(INDEX_COL).document(term).get()
+                if snap.exists:
+                    data = snap.to_dict() or {}
+                    for d in data.get("DocIDs", []):
+                        out.add(str(d))
+            except Exception:
+                pass
+        return out
+
+
+    def _lexical_candidate_article_ids(self, question: str) -> set[str]:
+        tokens = _tokenize(question)
+        terms = _normalize(tokens, use_stem=True)
+
+        if not terms:
+            return set()
+
+        docids = self._fetch_docids_from_index(terms)
+        if not docids:
+            return set()
+
+        mapping = self._build_docnum_to_articleid()
+
+        article_ids = set()
+        for docid in docids:
+            aid = mapping.get(docid)
+            if aid:
+                article_ids.add(aid)
+
+        return article_ids
+
+
+
     def query(self, question: str, top_k: int = 5, fallback_threshold: float = 0.20, progress_callback=None) -> dict:
         # Progress: Initializing
         if progress_callback:
@@ -716,6 +810,11 @@ class PlantRAG:
         
         if not self.loaded:
             self.load_from_firestore()
+
+        candidate_article_ids = set()
+        if self.use_index_filter:
+            candidate_article_ids = self._lexical_candidate_article_ids(question)
+
 
         # Progress: Generating embeddings
         if progress_callback:
@@ -726,6 +825,23 @@ class PlantRAG:
         docs = res["documents"][0]
         metas = res["metadatas"][0]
         dists = res["distances"][0]
+
+        if candidate_article_ids:
+            filtered = []
+            for doc, meta, dist in zip(docs, metas, dists):
+                if str(meta.get("article_id", "")) in candidate_article_ids:
+                    filtered.append((doc, meta, dist))
+
+            if filtered:
+                docs = [x[0] for x in filtered]
+                metas = [x[1] for x in filtered]
+                dists = [x[2] for x in filtered]
+                
+                docs = docs[:top_k]
+                metas = metas[:top_k]
+                dists = dists[:top_k]
+
+
 
         if not docs:
             return {
@@ -747,9 +863,17 @@ class PlantRAG:
             sim = 1.0 - d
             sims.append(sim)
 
+        reranked = self._hybrid_rerank(question, docs, metas, sims, alpha=0.75)
+
+        # Keep top_k after rerank
+        reranked = reranked[:top_k]
+        docs  = [x[3] for x in reranked]
+        metas = [x[4] for x in reranked]
+        sims  = [x[1] for x in reranked]
+
         best_sim = max(sims) if sims else 0.0
         used_fallback = best_sim < fallback_threshold
-
+ 
         # Build chunks for UI
         chunks = []
         for m, doc, sim in zip(metas, docs, sims):
