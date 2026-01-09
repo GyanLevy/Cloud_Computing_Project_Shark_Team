@@ -49,7 +49,7 @@ def handle_search_gamification(username, query):
     if not query or len(str(query).strip()) < 2:
         return 0
         
-    return auth_service.update_user_scores(username, 'SEARCH_QUERY', plant_id=None)
+    return auth_service.update_user_scores(username, 'USE_SEARCH', plant_id=None)
 
 
 def handle_add_plant_gamification(username, is_success):

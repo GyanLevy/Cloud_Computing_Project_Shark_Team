@@ -14,6 +14,7 @@ from ui.upload_ui import upload_screen
 from ui.dashboard_ui import dashboard_screen
 from ui.auth_ui import auth_screen
 from ui.gamification_ui import create_gamification_tab, refresh_all_data
+from ui.chat_ui import chat_screen
 
 # =========================
 # HELPER: HOME BANNER (Moved here correctly)
@@ -121,7 +122,8 @@ def home_screen():
             btn_search = gr.Button("Search", variant="secondary", scale=1, min_width=120)
             btn_dashboard = gr.Button("Dashboard", variant="secondary", scale=1, min_width=120)
             btn_upload = gr.Button("Scan Plant", variant="secondary", scale=1, min_width=120)
-            btn_race = gr.Button("🏆 Garden Race", variant="secondary", scale=1, min_width=120) 
+            btn_race = gr.Button("🏆 Garden Race", variant="secondary", scale=1, min_width=120)
+            btn_chat = gr.Button("💬 Chat", variant="secondary", scale=1, min_width=120)
             logout_btn = gr.Button("Logout", visible=False, scale=1, min_width=120)
 
         gr.Markdown("---")
@@ -161,6 +163,10 @@ def home_screen():
         with gr.Column(visible=False) as race:
             race_status, race_dd, race_board, race_lbl = create_gamification_tab(user_state)
 
+        # PAGE: CHAT
+        with gr.Column(visible=False) as chat:
+            chat_btn, chat_load, chat_inputs, chat_outputs = chat_screen(user_state)
+
         with gr.Column(visible=True) as auth:
             login_event, auth_current_user, auth_login_msg, auth_reg_msg = auth_screen(user_state)
 
@@ -174,10 +180,11 @@ def home_screen():
                 gr.update(visible=(target == "dashboard")),
                 gr.update(visible=(target == "upload")),
                 gr.update(visible=(target == "race")),
+                gr.update(visible=(target == "chat")),
                 gr.update(visible=(target == "auth")),
             ]
 
-        pages = [home, plants, sensors, search, dashboard, upload, race, auth]
+        pages = [home, plants, sensors, search, dashboard, upload, race, chat, auth]
         app.load(lambda: go("auth"), outputs=pages)
 
         # --- AUTO-LOAD LOGIC ---
@@ -197,6 +204,7 @@ def home_screen():
         btn_search.click(lambda: go("search"), outputs=pages)
         btn_dashboard.click(lambda: go("dashboard"), outputs=pages).then(fn=dashboard_load, inputs=dashboard_inputs, outputs=dashboard_outputs)
         btn_upload.click(lambda: go("upload"), outputs=pages)
+        btn_chat.click(lambda: go("chat"), outputs=pages).then(fn=chat_load, inputs=chat_inputs, outputs=chat_outputs)
         qa_plants.click(lambda: go("plants"), outputs=pages).then(fn=plants_load, inputs=plants_inputs, outputs=plants_outputs)
 
         btn_refresh.click(refresh_home_data, inputs=[user_state], outputs=[welcome_banner, m_plants, m_last, m_avg_soil])
@@ -221,12 +229,12 @@ def home_screen():
         def do_logout():
             logout_user()
             return (None, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), 
-                    gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), 
-                    gr.update(visible=True), gr.update(visible=True), "", "Not logged in.", "", "", "")
+                    gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                    gr.update(visible=False), gr.update(visible=True), gr.update(visible=True), "", "Not logged in.", "", "", "")
 
         logout_btn.click(
             fn=do_logout,
-            outputs=[user_state, nav_row, home, plants, sensors, search, dashboard, upload, race, auth, logout_btn, 
+            outputs=[user_state, nav_row, home, plants, sensors, search, dashboard, upload, race, chat, auth, logout_btn, 
                      user_status_label, auth_current_user, auth_login_msg, auth_reg_msg, welcome_banner]
         )
 

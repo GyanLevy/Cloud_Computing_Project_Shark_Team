@@ -524,7 +524,8 @@ class PlantRAG:
         
         # Priority list for models
         self.models_to_try = [
-            'gemini-2.0-flash',       # First priority
+            'gemini-2.5-flash',       # First priority
+            'gemini-2.0-flash',     
             'gemini-1.5-flash',       # Stable/Fast
             'gemini-pro',             # Classic
             'gemini-flash-latest'     # Fallback generic
