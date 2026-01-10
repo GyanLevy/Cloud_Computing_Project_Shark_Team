@@ -83,7 +83,11 @@ def run_query(username, question, top_k, progress=gr.Progress(track_tqdm=True)) 
     def gradio_callback(pct, desc=""):
         progress(pct, desc=desc)
     
-    out = _get_rag().query(q, top_k=int(top_k), progress_callback=gradio_callback)
+    # Show loading immediately (before RAG init on first call)
+    gradio_callback(0.05, desc="Preparing search engine...")
+    rag = _get_rag()
+    
+    out = rag.query(q, top_k=int(top_k), progress_callback=gradio_callback)
 
     answer = (out.get("response") or "").strip()
     chunks = out.get("chunks") or []

@@ -23,11 +23,10 @@ import re
 import time
 import threading
 
-# --- New Imports for AI ---
+# AI imports
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 from config import get_db

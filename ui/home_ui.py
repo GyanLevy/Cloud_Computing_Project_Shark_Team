@@ -223,7 +223,11 @@ def home_screen():
             fn=on_login_success,
             inputs=[user_state],
             outputs=[nav_row, logout_btn, user_status_label, welcome_banner, m_plants, m_last, m_avg_soil]
-        ).then(lambda: go("home"), outputs=pages)
+        ).then(
+            fn=lambda u: go("home") if u else go("auth"),
+            inputs=[user_state],
+            outputs=pages
+        )
 
         # Logout Logic
         def do_logout():

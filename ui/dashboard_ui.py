@@ -144,19 +144,6 @@ def _styled_fig(is_dark: bool, size=(7, 3.2)):
     ax.grid(True, alpha=0.3, color=pal["grid"])
     return fig, ax
 
-# def _style_axes(ax):
-#     ax.set_facecolor("#0b1220")
-#     for side in ["top", "right"]:
-#         ax.spines[side].set_visible(False)
-#     for side in ["left", "bottom"]:
-#         ax.spines[side].set_color("#334155")
-
-#     ax.tick_params(colors="#e2e8f0")
-#     ax.yaxis.label.set_color("#e2e8f0")
-#     ax.xaxis.label.set_color("#e2e8f0")
-#     ax.title.set_color("#e2e8f0")
-#     ax.grid(True, alpha=0.25)
-
 # =========================
 # Plot builders (Light-only / default matplotlib)
 # =========================
@@ -345,29 +332,6 @@ def dashboard_screen(user_state: gr.State):
             outputs=[info, plant_dd, summary_html, plots,p_soil_hist, p_temp, p_hum, p_soil,
             p_health, p_scatter],
         )
-    # # Reactive: update when plant dropdown selection changes
-    # plant_dd.change(
-    #     load,
-    #     inputs=[user_state, plant_dd, days_dd],
-    #     outputs=[
-    #         info, plant_dd, summary_html,
-    #         plots_wrap,
-    #         p_soil_hist, p_temp, p_hum, p_soil,
-    #         p_health, p_scatter
-    #     ],
-    # )
-
-    # # Reactive: update when days range changes
-    # days_dd.change(
-    #     load,
-    #     inputs=[user_state, plant_dd, days_dd],
-    #     outputs=[
-    #         info, plant_dd, summary_html,
-    #         plots_wrap,
-    #         p_soil_hist, p_temp, p_hum, p_soil,
-    #         p_health, p_scatter
-    #     ],
-    # )
 
     # Manual refresh button
     refresh_btn.click(

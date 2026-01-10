@@ -26,9 +26,7 @@ except ImportError:
     Document = None
     print("Warning: python-docx not installed. Run: pip install python-docx")
 
-# ==========================================
-# SETUP
-# ==========================================
+# --- SETUP ---
 
 try:
     nltk.data.find('corpora/stopwords')
@@ -58,9 +56,7 @@ def _doc_to_dict(doc):
             d[k] = v.isoformat()
     return d
 
-# ==========================================
-# SENSORS (IoT)
-# ==========================================
+# --- SENSORS (IoT) ---
 
 def add_sensor_reading(plant_id, temp=None, humidity=None, soil=None, light=None, extra=None):
     db = get_db()

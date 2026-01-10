@@ -35,10 +35,8 @@ if not os.path.exists(FIREBASE_CRED_PATH):
     else:
         print(f"Warning: Firebase key not found at {FIREBASE_CRED_PATH}")
 
-# ==========================================
-# PART 2: DATABASE INITIALIZATION (SINGLETON)
-# ==========================================
 
+# PART 2: DATABASE INITIALIZATION (SINGLETON)
 import json
 
 # Global variable to hold the DB instance
