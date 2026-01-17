@@ -46,15 +46,25 @@ def refresh_all_data(username):
 def safe_gamified_action(user, plant_id, action_type):
     """
     Validates that a plant is selected BEFORE calling the logic.
-    Prevents the 'free points' bug.
+    Prevents the 'free points' bug. Shows popup notification.
     """
     if not user:
-        return "Please log in first."
+        gr.Warning("⚠️ Please log in first.")
+        return None
     
     if not plant_id:
-        return "⚠️ Error: You must select a plant from the list first!"
+        gr.Warning("⚠️ You must select a plant from the list first!")
+        return None
     
-    return logic_handler.handle_gamified_action(user, action_type, plant_id)
+    result = logic_handler.handle_gamified_action(user, action_type, plant_id)
+    
+    # Show popup based on result
+    if "Limit Reached" in str(result) or "Error" in str(result):
+        gr.Warning(str(result))
+    else:
+        gr.Info(str(result))
+    
+    return None  # No output needed, popup handles it
 
 # ==========================================
 # 3. MAIN TAB UI
@@ -81,8 +91,6 @@ def create_gamification_tab(user_state):
             
             # Fertilize Button
             btn_fert = gr.Button("🧪 Fertilize (+10)", variant="primary", scale=1)
-        
-        lbl_result = gr.Textbox(label="Result", interactive=False, lines=1)
 
         gr.Markdown("---")
 
@@ -99,7 +107,7 @@ def create_gamification_tab(user_state):
         btn_water.click(
             fn=lambda u, pid: safe_gamified_action(u, pid, "WATER_PLANT"),
             inputs=[user_state, dd_plants], 
-            outputs=[lbl_result]
+            outputs=[]
         ).success(
             fn=refresh_all_data, 
             inputs=[user_state],
@@ -110,7 +118,7 @@ def create_gamification_tab(user_state):
         btn_fert.click(
             fn=lambda u, pid: safe_gamified_action(u, pid, "FERTILIZE_PLANT"),
             inputs=[user_state, dd_plants],
-            outputs=[lbl_result]
+            outputs=[]
         ).success(
             fn=refresh_all_data,
             inputs=[user_state],
@@ -118,4 +126,4 @@ def create_gamification_tab(user_state):
         )
         
     
-        return status_box, dd_plants, leaderboard, lbl_result
+        return status_box, dd_plants, leaderboard

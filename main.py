@@ -85,13 +85,16 @@ def main():
         db = get_db()
         print("[OK] Database Connected")
         
-        # 2. Setup/Seed Data (Critical for RAG/Search)
+        # 2. Setup/Seed Data (only if not already seeded)
         try:
-            data_manager.seed_database_with_articles()
-            print("[OK] Knowledge Base Ready")
+            existing = list(db.collection("articles").limit(1).stream())
+            if not existing:
+                data_manager.seed_database_with_articles()
+                print("[OK] Knowledge Base Seeded")
+            else:
+                print("[OK] Knowledge Base Already Exists (skipping seed)")
         except Exception as seed_err:
-            print(f"[WARNING] Knowledge Base seeding failed (likely quota/rate limit): {seed_err}")
-            print("[SYSTEM] Continuing launch... RAG search might use existing index.")
+            print(f"[WARNING] Knowledge Base check failed: {seed_err}")
 
 
     except Exception as e:
@@ -104,7 +107,7 @@ def main():
     # 4. Launch the Graphical Interface
     print("[SYSTEM] Launching User Interface...")
     app = home_screen()
-    app.launch()
+    app.launch(share=True)
 
 if __name__ == "__main__":
     main()

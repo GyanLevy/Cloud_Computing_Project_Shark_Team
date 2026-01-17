@@ -56,8 +56,8 @@ def run_vacation_check(days, current_username, progress=gr.Progress(track_tqdm=T
     if days is None: return []
     if not current_username: return [["Error", "-", "❌", "No user logged in"]]
     def gradio_callback(pct, desc=""): progress(pct, desc=desc)
-    from data_manager import generate_vacation_report
-    return generate_vacation_report(current_username, days, progress_callback=gradio_callback)
+    from service_client import generate_vacation_report_via_service  # Routes through microservice
+    return generate_vacation_report_via_service(current_username, days)
 
 # =========================
 # Helpers
@@ -144,7 +144,13 @@ def home_screen():
                 with gr.Row():
                     days_input = gr.Number(label="Days Away", precision=0, placeholder="e.g. 5")
                     check_btn = gr.Button("Check", variant="primary")
-                vacation_table = gr.Dataframe(headers=["Plant", "Current Soil", "Status", "Message"], interactive=False)
+                vacation_table = gr.Dataframe(
+                    headers=["Plant", "Soil", "Status", "Recommendation"],
+                    interactive=False,
+                    wrap=True,
+                    row_count=(5, "dynamic"),
+                    col_count=(4, "fixed"),
+                )
                 check_btn.click(fn=run_vacation_check, inputs=[days_input, user_state], outputs=[vacation_table])
 
         # OTHER PAGES
@@ -161,7 +167,7 @@ def home_screen():
 
         # PAGE: RACE
         with gr.Column(visible=False) as race:
-            race_status, race_dd, race_board, race_lbl = create_gamification_tab(user_state)
+            race_status, race_dd, race_board = create_gamification_tab(user_state)
 
         # PAGE: CHAT
         with gr.Column(visible=False) as chat:
